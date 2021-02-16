@@ -1,0 +1,3 @@
+[submodule "ping_protos"]
+	path = ping_protos
+	url = git@github.com:moomoon/ping_protos.git

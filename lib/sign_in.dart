@@ -66,7 +66,6 @@ class SignInState extends State<SignIn> {
             children: <Widget>[
               const SizedBox(height: 24.0),
               TextFormField(
-                style: TextStyle(color: Colors.white),
                 textCapitalization: TextCapitalization.words,
                 decoration: InputDecoration(
                     prefixIcon: const Icon(Icons.person), hintText: 'email'),
@@ -159,7 +158,6 @@ class _PasswordFieldState extends State<PasswordField> {
   Widget build(BuildContext context) {
     return TextFormField(
       key: widget.fieldKey,
-      style: TextStyle(color: Colors.white),
       obscureText: _obscureText,
       onSaved: widget.onSaved,
       validator: widget.validator,

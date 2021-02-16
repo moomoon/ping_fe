@@ -1,17 +1,15 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:ping_fe/chat.dart';
 import 'package:ping_fe/chat_list.dart';
 import 'package:ping_fe/foundation.dart';
 import 'package:ping_fe/account.dart';
+import 'package:ping_fe/protos/chat.pb.dart';
 import 'package:ping_fe/sign_in.dart';
 
 class MainRouterDelegate extends RouterDelegate<RouteInformation>
     with ChangeNotifier, PopNavigatorRouterDelegateMixin<RouteInformation> {
   List<Page> _pages = [];
-  static const chatList =
-      MaterialPage(key: ValueKey('chat_list'), child: ChatListWidget());
   @override
   Widget build(BuildContext context) {
     if (_pages.isEmpty) {
@@ -21,13 +19,15 @@ class MainRouterDelegate extends RouterDelegate<RouteInformation>
         stream: context.accountStore.stream,
         initialData: context.accountStore.value,
         builder: (context, snapshot) {
-          if (!snapshot.hasData) {
-            return const SignIn();
-          }
           return Navigator(
             key: navigatorKey,
             pages: [
-              if (_pages.isEmpty) chatList else ..._pages,
+              if (!snapshot.hasData)
+                const MaterialPage(key: ValueKey('sign_in'), child: SignIn())
+              else if (_pages.isEmpty)
+                ChatListWidget.page
+              else
+                ..._pages,
             ],
             onPopPage: (route, result) {
               if (!route.didPop(result)) {
@@ -59,22 +59,8 @@ class MainRouterDelegate extends RouterDelegate<RouteInformation>
     final uri = Uri.parse(configuration.location);
     // Handle '/'
     if (uri.pathSegments.length == 0) {
-      _pages = [
-        const MaterialPage(key: ValueKey('chat_list'), child: ChatListWidget())
-      ];
+      _pages = [ChatListWidget.page];
     }
-
-    // // Handle '/book/:id'
-    // if (uri.pathSegments.length == 2) {
-    //   if (uri.pathSegments[0] != 'book') return BookRoutePath.unknown();
-    //   var remaining = uri.pathSegments[1];
-    //   var id = int.tryParse(remaining);
-    //   if (id == null) return BookRoutePath.unknown();
-    //   return BookRoutePath.details(id);
-    // }
-
-    // // Handle unknown routes
-    // return BookRoutePath.unknown();
   }
 }
 

@@ -1,9 +1,12 @@
 import 'dart:async';
 import 'dart:math';
+import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:rsocket/metadata/composite_metadata.dart';
+import 'package:rsocket/payload.dart';
 
 class ValueNotification<T, Slot> extends Notification {
   final T value;
@@ -804,4 +807,71 @@ class _IdentityRouteInformationParser
   @override
   RouteInformation restoreRouteInformation(RouteInformation configuration) =>
       configuration;
+}
+
+extension StreamOps<T> on Stream<T> {
+  Stream<R> scan<R>(R initial, R combine(R r, T t)) async* {
+    yield initial;
+    R sum = initial;
+    yield* map<R>((element) {
+      sum = combine(sum, element);
+      return sum;
+    });
+  }
+}
+
+abstract class ListChanged {
+  inserted(int index);
+  removed(int index);
+
+  ListChanged operator +(ListChanged another) {
+    return DelegatedListChanged(another, this);
+  }
+
+  ListChanged operator -(ListChanged e) {
+    if (identical(this, e)) return null;
+    return this;
+  }
+}
+
+class DelegatedListChanged extends ListChanged {
+  final ListChanged prev;
+
+  final ListChanged delegate;
+
+  DelegatedListChanged(this.delegate, [this.prev]);
+  @override
+  inserted(int index) {
+    prev?.inserted(index);
+    delegate.inserted(index);
+  }
+
+  @override
+  removed(int index) {
+    prev?.removed(index);
+    delegate.removed(index);
+  }
+
+  @override
+  ListChanged operator -(ListChanged e) {
+    if (identical(delegate, e)) return prev;
+    final removeSuper = super - e;
+    if (identical(removeSuper, prev)) return this;
+    return DelegatedListChanged(delegate, removeSuper);
+  }
+}
+
+extension IterableOps<E> on Iterable<E> {
+  E get firstOrNull {
+    return isEmpty ? null : first;
+  }
+
+  E get lastOrNull {
+    return isEmpty ? null : last;
+  }
+}
+
+extension RSocketStringExt on String {
+  Payload asRoute([Uint8List data]) =>
+      Payload.from(RoutingMetadata(this, []).content, data);
 }

@@ -1,7 +1,7 @@
 import 'package:flutter/foundation.dart';
 
-class Chat {
-  final String id;
+// class Chat {
+//   final String id;
 
-  Chat({@required this.id});
-}
+//   Chat({@required this.id});
+// }

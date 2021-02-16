@@ -25,6 +25,9 @@ dependencies:
     sdk: flutter
   rsocket: ^0.1.2
   http: ^0.12.2
+  fixnum: ^0.10.11
+  protobuf: ^1.1.1
+  quiver: ^2.1.5
 
 
 
