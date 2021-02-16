@@ -820,21 +820,42 @@ extension StreamOps<T> on Stream<T> {
   }
 }
 
-abstract class ListChanged {
+abstract class ListChanged<E> {
   inserted(int index);
-  removed(int index);
+  removed(int index, E previous);
 
-  ListChanged operator +(ListChanged another) {
+  ListChanged<E> operator +(ListChanged<E> another) {
     return DelegatedListChanged(another, this);
   }
 
-  ListChanged operator -(ListChanged e) {
+  ListChanged<E> operator -(ListChanged<E> e) {
     if (identical(this, e)) return null;
     return this;
   }
+
+  static ListChanged<E> empty<E>() => _EmptyListener<E>();
 }
 
-class DelegatedListChanged extends ListChanged {
+class _EmptyListener<E> implements ListChanged<E> {
+  const _EmptyListener();
+  @override
+  ListChanged<E> operator +(ListChanged<E> another) {
+    return another;
+  }
+
+  @override
+  ListChanged<E> operator -(ListChanged<E> e) {
+    return this;
+  }
+
+  @override
+  inserted(int index) {}
+
+  @override
+  removed(int index, E previous) {}
+}
+
+class DelegatedListChanged<E> extends ListChanged<E> {
   final ListChanged prev;
 
   final ListChanged delegate;
@@ -847,13 +868,13 @@ class DelegatedListChanged extends ListChanged {
   }
 
   @override
-  removed(int index) {
-    prev?.removed(index);
-    delegate.removed(index);
+  removed(int index, E previous) {
+    prev?.removed(index, previous);
+    delegate.removed(index, previous);
   }
 
   @override
-  ListChanged operator -(ListChanged e) {
+  ListChanged<E> operator -(ListChanged<E> e) {
     if (identical(delegate, e)) return prev;
     final removeSuper = super - e;
     if (identical(removeSuper, prev)) return this;
@@ -874,4 +895,74 @@ extension IterableOps<E> on Iterable<E> {
 extension RSocketStringExt on String {
   Payload asRoute([Uint8List data]) =>
       Payload.from(RoutingMetadata(this, []).content, data);
+}
+
+extension on ChangeNotifier {
+  VoidCallback listenDisposable(VoidCallback listener) {
+    addListener(listener);
+    return () => removeListener(listener);
+  }
+}
+
+mixin ExternalState<T extends StatefulWidget> on State<T> {
+  ChangeNotifier get externalState;
+  VoidCallback _disposable;
+
+  @override
+  void initState() {
+    super.initState();
+    _disposable = externalState.listenDisposable(() {
+      setState(() {});
+    }).andThen(() {
+      _disposable = null;
+    });
+  }
+
+  @override
+  void didUpdateWidget(covariant T oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _disposable?.call();
+    _disposable = externalState.listenDisposable(() {
+      setState(() {});
+    }).andThen(() {
+      _disposable = null;
+    });
+  }
+
+  @override
+  void dispose() {
+    _disposable?.call();
+    super.dispose();
+  }
+}
+
+class ExternalStatefulBuilder<T extends ChangeNotifier> extends StatefulWidget {
+  final T state;
+  final Widget Function(BuildContext context, T state) builder;
+
+  const ExternalStatefulBuilder(
+      {Key key, @required this.state, @required this.builder})
+      : super(key: key);
+  @override
+  State<StatefulWidget> createState() {
+    return _ExternalStatefulBuilderState();
+  }
+}
+
+class _ExternalStatefulBuilderState<T extends ChangeNotifier>
+    extends State<ExternalStatefulBuilder<T>> with ExternalState {
+  @override
+  Widget build(BuildContext context) {
+    return widget.builder(context, widget.state);
+  }
+
+  @override
+  ChangeNotifier get externalState => widget.state;
+}
+
+extension VoidCallbackExt on VoidCallback {
+  VoidCallback andThen(VoidCallback next) => () {
+        this();
+        next();
+      };
 }

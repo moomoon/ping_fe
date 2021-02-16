@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:ping_fe/chat_detail.dart';
 import 'package:ping_fe/chat_list.dart';
 import 'package:ping_fe/foundation.dart';
 import 'package:ping_fe/account.dart';
@@ -47,7 +48,14 @@ class MainRouterDelegate extends RouterDelegate<RouteInformation>
   @override
   GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
-  pushChat(Chat chat) {}
+  pushChat(Chat chat) {
+    _pages.add(MaterialPage(
+        key: ValueKey('chat:${chat.id}'),
+        child: ChatDetail(
+          chatId: chat.id,
+        )));
+    notifyListeners();
+  }
 
   popUntilChatList() {
     _pages = [];

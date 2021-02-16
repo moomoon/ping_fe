@@ -9,6 +9,113 @@ import 'package:ping_fe/foundation.dart';
 import 'package:ping_fe/protos/chat.pb.dart';
 import 'package:rsocket/rsocket.dart';
 
+class MessageSectionWidget extends StatelessWidget {
+  final MessageSection section;
+
+  const MessageSectionWidget({Key key, @required this.section})
+      : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return ExternalStatefulBuilder(
+        state: section,
+        builder: (context, section) {
+          return Text(section.messages.map((e) => e.content).join());
+        });
+  }
+}
+
+class _MessageList extends StatefulWidget {
+  final ChatMessageStore store;
+
+  const _MessageList({Key key, this.store}) : super(key: key);
+
+  @override
+  State<StatefulWidget> createState() {
+    return _MessageListState();
+  }
+}
+
+class _MessageListState extends State<_MessageList>
+    with ListChanged<MessageSection> {
+  final GlobalKey<AnimatedListState> _listKey = GlobalKey();
+  VoidCallback _listDisposable;
+  @override
+  void initState() {
+    super.initState();
+    _listDisposable =
+        widget.store.addListener(this).andThen(() => _listDisposable = null);
+  }
+
+  @override
+  void didUpdateWidget(covariant _MessageList oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _listDisposable?.call();
+    _listDisposable =
+        widget.store.addListener(this).andThen(() => _listDisposable = null);
+  }
+
+  @override
+  void dispose() {
+    _listDisposable?.call();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedList(
+        key: _listKey,
+        initialItemCount: widget.store.sections.length,
+        itemBuilder: (context, index, animation) {
+          return FadeTransition(
+              opacity: animation,
+              child:
+                  MessageSectionWidget(section: widget.store.sections[index]));
+        });
+  }
+
+  @override
+  inserted(int index) {
+    _listKey.currentState?.insertItem(index);
+  }
+
+  @override
+  removed(int index, MessageSection previous) {
+    _listKey.currentState?.removeItem(
+        index,
+        (context, animation) => FadeTransition(
+            opacity: animation,
+            child: MessageSectionWidget(section: previous)));
+  }
+}
+
+class ChatDetail extends StatelessWidget {
+  final String chatId;
+
+  const ChatDetail({Key key, @required this.chatId}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+        appBar: AppBar(
+          leading: BackButton(),
+          title: Text('chat detail'),
+        ),
+        body: StreamBuilder<MessageStore>(
+            stream: context.accountStore.stream
+                .rsockets(url: context.api.rsocketUrl)
+                .messageStore,
+            builder: (context, snapshot) {
+              if (snapshot.hasData) {
+                return _MessageList(store: snapshot.data.get(chatId));
+              }
+              return Center(
+                child: Text(snapshot.error?.toString() ?? 'no data'),
+              );
+            }));
+  }
+}
+
 class MessageStore {
   final Account account;
   final RSocket rsocket;
@@ -30,6 +137,7 @@ class MessageStore {
             .writeToBuffer()))
         .map<Message>((payload) => Message.fromBuffer(payload.data))
         .listen((message) {
+      print('got message $message');
       get(message.chatId).append(message);
     });
   }
@@ -70,32 +178,61 @@ extension MessageStoreExt on Stream<RSocketConn> {
 class MessageSection with ChangeNotifier {
   List<Message> messages = [];
   bool prepend(Message message) {
-    return false;
+    if (messages.isEmpty) {
+      messages.add(message);
+      notifyListeners();
+      return true;
+    }
+    final first = messages.first;
+    if (first.senderId != message.senderId) {
+      return false;
+    }
+    if (first.timestamp - message.timestamp > 30) {
+      return false;
+    }
+    messages.insert(0, message);
+    notifyListeners();
+    return true;
   }
 
   bool append(Message message) {
-    return false;
+    if (messages.isEmpty) {
+      messages.add(message);
+      notifyListeners();
+      return true;
+    }
+    final last = messages.last;
+    if (last.senderId != message.senderId) {
+      return false;
+    }
+    if (message.timestamp - last.timestamp > 30) {
+      return false;
+    }
+    messages.add(message);
+    notifyListeners();
+    return true;
   }
 }
 
 class ChatMessageStore {
   final String chatId;
   List<MessageSection> sections = [];
-  ListChanged _listener;
+  ListChanged<MessageSection> _listener;
   bool _sawStart = false;
   Future<void> _loadMoreFuture;
 
-  ChatMessageStore({@required this.chatId});
-  addListener(ListChanged l) {
-    _listener += l;
-  }
+  ChatMessageStore({@required this.chatId})
+      : _listener = ListChanged.empty<MessageSection>();
 
-  removeListener(ListChanged l) {
-    _listener -= l;
+  VoidCallback addListener(ListChanged l) {
+    _listener += l;
+    return () => _listener -= l;
   }
 
   append(Message message) {
-    if (sections.lastOrNull?.append(message) == true) return;
+    if (sections.lastOrNull?.append(message) == true) {
+      return;
+    }
     final section = MessageSection();
     section.append(message);
     sections.add(section);
@@ -138,4 +275,6 @@ class ChatMessageStore {
 }
 
 Future<List<Message>> loadMessagesBefore(
-    {String chatId, @required Int64 messageId, @required int limit}) {}
+    {String chatId, @required Int64 messageId, @required int limit}) async {
+  return [];
+}

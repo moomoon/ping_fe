@@ -1,14 +1,10 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:http/http.dart' as http;
 import 'package:ping_fe/account.dart';
-import 'package:rsocket/core/rsocket_requester.dart';
-import 'package:rsocket/duplex_connection.dart';
 import 'package:rsocket/payload.dart';
 import 'package:rsocket/rsocket.dart';
 import 'package:rsocket/rsocket_connector.dart';
@@ -54,13 +50,16 @@ extension on Account {
 extension RSocketExt on Stream<Account> {
   static RSocketConn _conn;
   static Stream<RSocketConn> _stream;
-  Stream<RSocketConn> rsockets({@required String url}) => _stream ??= this
-          .transform(StreamTransformer<Account, RSocketConn>.fromHandlers(
-              handleData: (account, sink) async {
-        if (_conn?.account == account) return;
-        _conn?.rsocket?.close();
-        sink.add(_conn = await account?.rsocket(url));
-      })).asBroadcastStream();
+  Stream<RSocketConn> rsockets({@required String url}) async* {
+    if (_conn != null) yield _conn;
+    yield* _stream ??= this.transform(
+        StreamTransformer<Account, RSocketConn>.fromHandlers(
+            handleData: (account, sink) async {
+      if (_conn?.account == account) return;
+      _conn?.rsocket?.close();
+      sink.add(_conn = await account?.rsocket(url));
+    })).asBroadcastStream();
+  }
 }
 
 extension ApiExt on BuildContext {
