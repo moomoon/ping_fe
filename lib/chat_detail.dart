@@ -102,9 +102,7 @@ class ChatDetail extends StatelessWidget {
           title: Text('chat detail'),
         ),
         body: StreamBuilder<MessageStore>(
-            stream: context.accountStore.stream
-                .rsockets(url: context.api.rsocketUrl)
-                .messageStore,
+            stream: context.rsockets.messageStore,
             builder: (context, snapshot) {
               if (snapshot.hasData) {
                 return _MessageList(store: snapshot.data.get(chatId));

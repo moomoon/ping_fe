@@ -16,9 +16,7 @@ class ChatListWidget extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     Widget content = StreamBuilder<List<Chat>>(
-        stream: context.accountStore.stream
-            .rsockets(url: context.api.rsocketUrl)
-            .chatList,
+        stream: context.rsockets.chatList,
         builder: (context, snapshot) {
           return ListView.builder(
               itemCount: snapshot?.data?.length ?? 0,
@@ -33,6 +31,19 @@ class ChatListWidget extends StatelessWidget {
     return Scaffold(
         appBar: AppBar(
           title: Text('chat list'),
+          actions: [
+            StreamBuilder<RSocketConn>(
+              stream: context.rsockets,
+              builder: (context, snapshot) => snapshot.hasData
+                  ? IconButton(
+                      icon: Icon(Icons.add),
+                      onPressed: () {
+                        snapshot.requireData.rsocket
+                            .fireAndForget('chats.random'.asRoute());
+                      })
+                  : const SizedBox(),
+            ),
+          ],
         ),
         body: content);
   }

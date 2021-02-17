@@ -64,6 +64,8 @@ extension RSocketExt on Stream<Account> {
 
 extension ApiExt on BuildContext {
   Api get api => Api.instance;
+  Stream<RSocketConn> get rsockets =>
+      accountStore.stream.rsockets(url: api.rsocketUrl);
 }
 
 // Future<RSocket> connectRSocket(String url, String token) async {
