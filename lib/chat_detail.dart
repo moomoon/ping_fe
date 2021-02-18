@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:ping_fe/account.dart';
 import 'package:ping_fe/api.dart';
 import 'package:ping_fe/foundation.dart';
+import 'package:ping_fe/persistent.dart';
 import 'package:ping_fe/protos/chat.pb.dart';
 import 'package:rsocket/rsocket.dart';
 
@@ -102,7 +103,7 @@ class ChatDetail extends StatelessWidget {
           title: Text('chat detail'),
         ),
         body: StreamBuilder<MessageStore>(
-            stream: context.rsockets.messageStore,
+            stream: context.messageStore,
             builder: (context, snapshot) {
               if (snapshot.hasData) {
                 return _MessageList(store: snapshot.data.get(chatId));
@@ -119,29 +120,46 @@ class MessageStore {
   final RSocket rsocket;
   final Map<String, ChatMessageStore> _messages;
   StreamSubscription _remoteSubscription;
+  StreamSubscription _dbSubscription;
+  AccountPersistentStore _store;
   MessageStore({@required this.account, @required this.rsocket})
       : _messages = Map<String, ChatMessageStore>();
 
   Future<void> cancel() async {
     await _remoteSubscription?.cancel();
+    await _dbSubscription?.cancel();
   }
 
-  Future<void> start() async {
-    final messages = await loadMessagesBefore(messageId: null, limit: 1);
-    final latestMessageId = messages.firstOrNull?.id ?? Int64(-1);
-    _remoteSubscription = rsocket
+  Future<void> start(Future<AccountPersistentStore> storeFuture) async {
+    _store =
+        await Future.any([storeFuture, Future.delayed(Duration(seconds: 1))]);
+    if (_store == null) {
+      if (kDebugMode) {
+        throw 'Could not create account store';
+      }
+    }
+    final latestMessage = await _store?.latestMessage();
+    final latestMessageId = latestMessage?.id ?? Int64(-1);
+    final messageStream = rsocket
         .requestStream('messages.stream'.asRoute((StreamMessages()
               ..fromMessageId = latestMessageId)
             .writeToBuffer()))
         .map<Message>((payload) => Message.fromBuffer(payload.data))
-        .listen((message) {
+        .asBroadcastStream(onListen: (sub) => _remoteSubscription = sub);
+    messageStream.listen((message) async {
       print('got message $message');
       get(message.chatId).append(message);
     });
+    if (_store != null) {
+      _dbSubscription = messageStream.listen((message) async {
+        await _store.upsertMessage(message);
+      });
+    }
   }
 
   ChatMessageStore get(String chatId) {
-    return _messages[chatId] ??= ChatMessageStore(chatId: chatId);
+    return _messages[chatId] ??=
+        ChatMessageStore(chatId: chatId, store: _store);
   }
 
   static MessageStore instance;
@@ -152,16 +170,18 @@ extension on RSocketConn {
       MessageStore(account: account, rsocket: rsocket);
 }
 
-extension MessageStoreExt on Stream<RSocketConn> {
+extension MessageStoreExt on BuildContext {
   static Stream<MessageStore> _stream;
   Stream<MessageStore> get messageStore {
-    return _stream ??= transform(
-        StreamTransformer<RSocketConn, MessageStore>.fromHandlers(
+    return _stream ??= accountStore.stream
+        .rsockets(url: api.rsocketUrl)
+        .transform(StreamTransformer<RSocketConn, MessageStore>.fromHandlers(
             handleData: (conn, sink) async {
       if (MessageStore.instance?.account == conn?.account) return;
       await MessageStore.instance?.cancel();
       final store = MessageStore.instance = conn?.messageStore;
-      await store?.start();
+      await store?.start(accountStore.stream.persistentStore
+          .firstWhere((store) => store.account == conn.account));
       if (identical(store, MessageStore.instance)) {
         sink.add(store);
       }
@@ -214,12 +234,13 @@ class MessageSection with ChangeNotifier {
 
 class ChatMessageStore {
   final String chatId;
+  final AccountPersistentStore store;
   List<MessageSection> sections = [];
   ListChanged<MessageSection> _listener;
   bool _sawStart = false;
   Future<void> _loadMoreFuture;
 
-  ChatMessageStore({@required this.chatId})
+  ChatMessageStore({@required this.chatId, @required this.store})
       : _listener = ListChanged.empty<MessageSection>();
 
   VoidCallback addListener(ListChanged l) {
@@ -246,11 +267,12 @@ class ChatMessageStore {
     _loadMoreFuture = completer.future;
     try {
       final firstMessageId = sections.firstOrNull?.messages?.firstOrNull?.id;
-      final messages = await loadMessagesBefore(
-        chatId: chatId,
-        messageId: firstMessageId,
-        limit: 100,
-      );
+      final messages = await store?.loadMessagesBefore(
+            chatId: chatId,
+            messageId: firstMessageId,
+            limit: 100,
+          ) ??
+          [];
       var newSectionCount = 0;
       for (final message in messages.reversed) {
         if (sections.firstOrNull?.prepend(message) == true) continue;
@@ -270,9 +292,4 @@ class ChatMessageStore {
       _loadMoreFuture = null;
     }
   }
-}
-
-Future<List<Message>> loadMessagesBefore(
-    {String chatId, @required Int64 messageId, @required int limit}) async {
-  return [];
 }

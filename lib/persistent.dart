@@ -1,9 +1,10 @@
 import 'dart:async';
 
+import 'package:fixnum/fixnum.dart';
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart';
 import 'package:ping_fe/account.dart';
-import 'package:ping_fe/api.dart';
+import 'package:ping_fe/protos/chat.pb.dart';
 import 'package:sqflite/sqflite.dart';
 
 class AccountPersistentStore {
@@ -23,8 +24,8 @@ class AccountPersistentStore {
   static AccountPersistentStore instance;
 }
 
-extension on Account {
-  Future<AccountPersistentStore> get persistentStore async {
+extension PersistencyExt on Account {
+  Future<AccountPersistentStore> get newPersistentStore async {
     final db =
         await openDatabase(join(await getDatabasesPath(), '$username.db'),
             onCreate: (db, version) async {
@@ -32,9 +33,7 @@ extension on Account {
         'CREATE TABLE messages(id INTEGER PRIMARY KEY, sender TEXT, content TEXT, chat_id TEXT, timestamp INTEGER)',
       );
       await db.execute(
-          'CREATE INDEX messages_timestamp_idx on messages(timestamp)');
-      await db.execute(
-          'CREATE INDEX messages_chat_id_timestamp_idx on messages(chat_id, timestamp)');
+          'CREATE INDEX messages_chat_id_timestamp_idx on messages(chat_id, id)');
     }, version: 1);
     return AccountPersistentStore(account: this, db: db);
   }
@@ -51,7 +50,7 @@ extension AccountPersistentStoreExt on Stream<Account> {
       if (account == AccountPersistentStore.instance?.account) return;
       await AccountPersistentStore.instance?.close();
       final oldStore = AccountPersistentStore.instance;
-      final newStore = await account.persistentStore;
+      final newStore = await account.newPersistentStore;
       if (identical(AccountPersistentStore.instance, oldStore)) {
         sink.add(AccountPersistentStore.instance = newStore);
       } else {
@@ -72,10 +71,23 @@ abstract class Decoder<T> {
 class MessageCodec with Encoder<Message>, Decoder<Message> {
   const MessageCodec();
   @override
-  decode(Map<String, dynamic> map) {}
+  Message decode(Map<String, dynamic> map) {
+    return Message()
+      ..id = map['id']
+      ..chatId = map['chat_id']
+      ..content = map['content']
+      ..senderId = map['sender'];
+  }
 
   @override
-  Map<String, dynamic> encode(value) {}
+  Map<String, dynamic> encode(Message value) {
+    return {
+      'id': value.id,
+      'chat_id': value.chatId,
+      'content': value.content,
+      'sender': value.senderId
+    };
+  }
 }
 
 extension AccountPersistentStoreOps on AccountPersistentStore {
@@ -84,7 +96,37 @@ extension AccountPersistentStoreOps on AccountPersistentStore {
     return db.insert('messages', encoder.encode(value),
         conflictAlgorithm: ConflictAlgorithm.replace);
   }
-  Future<Message> latestMessage() async {
-    
+
+  Future<Message> latestMessage(
+      {Decoder<Message> decoder: const MessageCodec()}) async {
+    final raw = await db.query('messages', orderBy: 'id desc', limit: 1);
+    if (raw.isEmpty) return null;
+    return decoder.decode(raw[0]);
+  }
+
+  Future<List<Message>> loadMessagesBefore(
+      {String chatId,
+      Int64 messageId,
+      int limit: 100,
+      Decoder<Message> decoder: const MessageCodec()}) async {
+    String where = '';
+    List whereArgs = [];
+    if (chatId?.isNotEmpty == true) {
+      where += 'chat_id = ?';
+      whereArgs.add(chatId);
+    }
+    if (messageId >= 0) {
+      if (where.isNotEmpty) where += ' and ';
+      where += 'id < ?';
+      whereArgs.add(messageId);
+    }
+    final raw = await db.query(
+      'messages',
+      where: where,
+      whereArgs: whereArgs,
+      orderBy: 'id desc',
+      limit: limit,
+    );
+    return raw.reversed.map(decoder.decode).toList();
   }
 }
