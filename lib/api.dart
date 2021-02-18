@@ -36,6 +36,12 @@ class RSocketConn {
   final RSocket rsocket;
 
   RSocketConn({@required this.account, @required this.rsocket});
+
+  static RSocketConn instance;
+
+  close() {
+    rsocket.close();
+  }
 }
 
 extension on Account {
@@ -48,16 +54,15 @@ extension on Account {
 }
 
 extension RSocketExt on Stream<Account> {
-  static RSocketConn _conn;
   static Stream<RSocketConn> _stream;
   Stream<RSocketConn> rsockets({@required String url}) async* {
-    if (_conn != null) yield _conn;
+    if (RSocketConn.instance != null) yield RSocketConn.instance;
     yield* _stream ??= this.transform(
         StreamTransformer<Account, RSocketConn>.fromHandlers(
             handleData: (account, sink) async {
-      if (_conn?.account == account) return;
-      _conn?.rsocket?.close();
-      sink.add(_conn = await account?.rsocket(url));
+      if (RSocketConn.instance?.account == account) return;
+      RSocketConn.instance?.close();
+      sink.add(RSocketConn.instance = await account?.rsocket(url));
     })).asBroadcastStream();
   }
 }
