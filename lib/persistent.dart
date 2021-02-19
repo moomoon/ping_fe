@@ -73,7 +73,7 @@ class MessageCodec with Encoder<Message>, Decoder<Message> {
   @override
   Message decode(Map<String, dynamic> map) {
     return Message()
-      ..id = map['id']
+      ..id = Int64(map['id'])
       ..chatId = map['chat_id']
       ..content = map['content']
       ..senderId = map['sender'];
@@ -82,7 +82,7 @@ class MessageCodec with Encoder<Message>, Decoder<Message> {
   @override
   Map<String, dynamic> encode(Message value) {
     return {
-      'id': value.id,
+      'id': value.id.toInt(),
       'chat_id': value.chatId,
       'content': value.content,
       'sender': value.senderId
