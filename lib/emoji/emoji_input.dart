@@ -79,7 +79,13 @@ class EmojiInputState extends State<EmojiInput> {
                     color: Colors.white.withAlpha(200),
                     size: 18,
                   ),
-                  onPressed: () {},
+                  onPressed: () {
+                    if (_controller.text?.isNotEmpty == true) {
+                      ValueNotification<String, EmojiInput>(_controller.text)
+                          .dispatch(context);
+                      _controller.text = '';
+                    }
+                  },
                 ),
               )
             ],

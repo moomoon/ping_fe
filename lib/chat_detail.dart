@@ -117,7 +117,23 @@ class ChatDetail extends StatelessWidget {
                       child: Text(snapshot.error?.toString() ?? 'no data'),
                     );
                   })),
-          EmojiInput(),
+          StreamBuilder<RSocketConn>(
+              stream: context.rsockets,
+              builder: (context, snapshot) {
+                Widget content = EmojiInput();
+                if (snapshot.hasData) {
+                  content =
+                      content.onValueNotification<String, EmojiInput>((n) {
+                    snapshot.data.rsocket
+                        .fireAndForget('messages.send'.asRoute((SendMessage()
+                              ..chatId = chatId
+                              ..content = n)
+                            .writeToBuffer()));
+                    return true;
+                  });
+                }
+                return content;
+              })
         ])));
   }
 }
