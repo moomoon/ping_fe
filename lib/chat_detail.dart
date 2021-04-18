@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:fixnum/fixnum.dart';
 import 'package:flutter/foundation.dart';
@@ -6,10 +7,13 @@ import 'package:flutter/material.dart';
 import 'package:ping_fe/account.dart';
 import 'package:ping_fe/api.dart';
 import 'package:ping_fe/emoji/emoji_input.dart';
+import 'package:ping_fe/emoji/widget_thrower.dart';
 import 'package:ping_fe/foundation.dart';
 import 'package:ping_fe/persistent.dart';
 import 'package:ping_fe/protos/chat.pb.dart';
 import 'package:rsocket/rsocket.dart';
+
+import 'emoji/base_emoji.dart';
 
 class MessageSectionWidget extends StatelessWidget {
   final MessageSection section;
@@ -91,19 +95,46 @@ class _MessageListState extends State<_MessageList>
   }
 }
 
-class ChatDetail extends StatelessWidget {
+class ChatDetail extends StatefulWidget {
   final String chatId;
 
   const ChatDetail({Key key, @required this.chatId}) : super(key: key);
 
   @override
+  State<StatefulWidget> createState() {
+    return ChatDetailState();
+  }
+}
+
+class ChatDetailState extends State<ChatDetail> {
+  BehaviorSubject<Emoji> throwingEmoji = BehaviorSubject();
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
         appBar: AppBar(
+          backgroundColor: Color.lerp(Colors.white, Colors.black, 0.9),
           leading: BackButton(),
           title: Text('chat detail'),
+          actions: [
+            WidgetThrower()
+                .inheriting<Stream<Widget>, WidgetThrower>(throwingEmoji.stream
+                    .map((event) => event == null
+                        ? null
+                        : Text(event.text,
+                            style: TextStyle(
+                              fontSize: 28,
+                              fontFamilyFallback:
+                                  (!kIsWeb && Platform.isAndroid)
+                                      ? <String>[
+                                          'NotoColorEmoji',
+                                        ]
+                                      : null,
+                            )))
+                    .asBroadcastStream())
+          ],
         ),
-        backgroundColor: Color.lerp(Colors.white, Colors.black, 0.7),
+        backgroundColor: Color.lerp(Colors.white, Colors.black, 0.8),
         body: SafeArea(
             child: Column(children: [
           Expanded(
@@ -111,7 +142,8 @@ class ChatDetail extends StatelessWidget {
                   stream: context.messageStore,
                   builder: (context, snapshot) {
                     if (snapshot.hasData) {
-                      return _MessageList(store: snapshot.data.get(chatId));
+                      return _MessageList(
+                          store: snapshot.data.get(widget.chatId));
                     }
                     return Center(
                       child: Text(snapshot.error?.toString() ?? 'no data'),
@@ -126,14 +158,14 @@ class ChatDetail extends StatelessWidget {
                       content.onValueNotification<String, EmojiInput>((n) {
                     snapshot.data.rsocket
                         .fireAndForget('messages.send'.asRoute((SendMessage()
-                              ..chatId = chatId
+                              ..chatId = widget.chatId
                               ..content = n)
                             .writeToBuffer()));
                     return true;
                   });
                 }
                 return content;
-              })
+              }).inheritingDefaultSlot(throwingEmoji)
         ])));
   }
 }

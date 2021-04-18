@@ -21,13 +21,13 @@ class EmojiInputState extends State<EmojiInput> {
   TextEditingController _controller = TextEditingController();
   GlobalKey _textFieldKey = GlobalKey();
   FocusNode _focusNode = FocusNode();
-  BehaviorSubject<Emoji> emojis = BehaviorSubject();
+  // BehaviorSubject<Emoji> emojis = BehaviorSubject();
   @override
   Widget build(BuildContext context) {
     Widget content = Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        WidgetThrower(),
+        // WidgetThrower(),
         Container(
           height: 0.5,
           color: Colors.white10,
@@ -42,7 +42,7 @@ class EmojiInputState extends State<EmojiInput> {
                   focusNode: _focusNode,
                   decoration: InputDecoration(
                     hintStyle: TextStyle(color: Colors.grey[600]),
-                    fillColor: Color.lerp(Colors.white, Colors.black, 0.7),
+                    fillColor: Color.lerp(Colors.white, Colors.black, 0.8),
                     filled: true,
                     isDense: true,
                     focusColor: Colors.red,
@@ -129,21 +129,21 @@ class EmojiInputState extends State<EmojiInput> {
         })
       ],
     );
-    return content
-        .inheritingDefaultSlot(emojis)
-        .inheriting<Stream<Widget>, WidgetThrower>(emojis.stream
-            .map((event) => event == null
-                ? null
-                : Text(event.text,
-                    style: TextStyle(
-                      fontSize: 28,
-                      fontFamilyFallback: (!kIsWeb && Platform.isAndroid)
-                          ? <String>[
-                              'NotoColorEmoji',
-                            ]
-                          : null,
-                    )))
-            .asBroadcastStream());
+    return content;
+    // .inheritingDefaultSlot(emojis)
+    // .inheriting<Stream<Widget>, WidgetThrower>(emojis.stream
+    //     .map((event) => event == null
+    //         ? null
+    //         : Text(event.text,
+    //             style: TextStyle(
+    //               fontSize: 28,
+    //               fontFamilyFallback: (!kIsWeb && Platform.isAndroid)
+    //                   ? <String>[
+    //                       'NotoColorEmoji',
+    //                     ]
+    //                   : null,
+    //             )))
+    //     .asBroadcastStream());
   }
 
   void _insertText(String t) {
