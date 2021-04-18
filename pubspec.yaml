@@ -28,6 +28,10 @@ dependencies:
   fixnum: ^0.10.11
   protobuf: ^1.1.1
   quiver: ^2.1.5
+  sensors: ^0.4.2
+  device_info: ^1.0.0
+  vibration: ^1.7.3
+  shared_preferences: ^0.5.7+3
   sqflite:
   path:
 
@@ -46,7 +50,10 @@ dev_dependencies:
 
 # The following section is specific to Flutter.
 flutter:
-
+  fonts:
+  - family: NotoColorEmoji
+    fonts:
+      - asset: fonts/NotoColorEmoji.ttf
   # The following line ensures that the Material Icons font is
   # included with your application, so that you can use the icons in
   # the material Icons class.
@@ -80,5 +87,6 @@ flutter:
   #       - asset: fonts/TrajanPro_Bold.ttf
   #         weight: 700
   #
+
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/custom-fonts/#from-packages

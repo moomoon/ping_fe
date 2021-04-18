@@ -11,7 +11,16 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Theme(
-        data: ThemeData.light(),
+        data: ThemeData.dark().copyWith(
+          inputDecorationTheme: Theme.of(context).inputDecorationTheme.copyWith(
+              hintStyle: TextStyle(color: Colors.grey[600]),
+              fillColor: Color.lerp(Colors.white, Colors.black, 0.7),
+              filled: true,
+              isDense: true,
+              focusColor: Colors.red,
+              contentPadding: EdgeInsets.only(top: 16, left: 14),
+              border: OutlineInputBorder(borderSide: BorderSide.none)),
+        ),
         child: MaterialApp.router(
             routeInformationParser: IdentityRoute.identity,
             routerDelegate: MainRouterDelegate()));

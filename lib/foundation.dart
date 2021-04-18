@@ -61,6 +61,9 @@ extension Foundation on BuildContext {
     if (null != widget) return (widget as InheritedValue<T, Slot>).value;
     return null;
   }
+
+  T peekInheritedDefaultSlot<T>() => peekInherited<T, dynamic>();
+  T dependOnInheritedDefaultSlot<T>() => dependOnInherited<T, dynamic>();
 }
 
 class SingleTap {}
@@ -85,6 +88,13 @@ extension Inheriting on Widget {
             return true;
           },
           child: this);
+  Widget onNotification<T extends Notification>(bool onNotification(T n)) =>
+      NotificationListener<T>(onNotification: onNotification, child: this);
+  Widget onValueNotification<T, Slot>(bool onNotification(T n)) =>
+      NotificationListener<ValueNotification<T, Slot>>(
+          onNotification: (n) => onNotification(n.value), child: this);
+  Widget onValueNotificationDefaultSlot<T>(bool onNotification(T n)) =>
+      onValueNotification<T, dynamic>(onNotification);
 
   Widget valueRegistry<T, Slot>(f(T v)) =>
       this.inheriting<ValueRegistry<T>, Slot>(ValueRegistry.from(f));
@@ -147,6 +157,13 @@ class FadingEdges extends StatelessWidget {
       blendMode: BlendMode.modulate,
       child: child,
     );
+  }
+}
+
+extension ListOps<E> on List<E> {
+  E getOrNull(int index) {
+    if (index < length) return this[index];
+    return null;
   }
 }
 
@@ -965,4 +982,107 @@ extension VoidCallbackExt on VoidCallback {
         this();
         next();
       };
+}
+
+enum OverlayPosition { fill, centerAbove }
+
+extension Popup on BuildContext {
+  OverlayEntry showOverlay({
+    @required OverlayPosition position,
+    @required WidgetBuilder builder,
+    EdgeInsets margin = EdgeInsets.zero,
+    Offset offset = Offset.zero,
+  }) {
+    RenderObject overlay = Overlay.of(this).context.findRenderObject();
+    RenderBox self = findRenderObject();
+    Matrix4 transform = self.getTransformTo(overlay);
+    final transl = transform.getTranslation();
+    SingleChildLayoutDelegate delegate;
+    switch (position) {
+      case OverlayPosition.fill:
+        delegate = FillDelegate(
+          rect: (Offset(transl.x, transl.y) + offset) & self.size,
+          margin: margin,
+        );
+        break;
+      case OverlayPosition.centerAbove:
+        delegate = CenterAboveDelegate(
+          y: transl.y + offset.dy,
+          left: transl.x + offset.dx,
+          right: transl.x + offset.dx + self.size.width,
+          margin: margin,
+        );
+        break;
+    }
+    final entry = OverlayEntry(builder: (context) {
+      return CustomSingleChildLayout(
+        delegate: delegate,
+        child: builder(context),
+      );
+    });
+    Overlay.of(this).insert(entry);
+    return entry;
+  }
+}
+
+class CenterAboveDelegate extends SingleChildLayoutDelegate {
+  final double y;
+  final double left;
+  final double right;
+  final EdgeInsets margin;
+
+  CenterAboveDelegate({
+    @required this.y,
+    @required this.left,
+    @required this.right,
+    @required this.margin,
+  });
+
+  @override
+  Offset getPositionForChild(Size size, Size childSize) {
+    final halfX = childSize.width / 2;
+    var centerX = (left + right) / 2;
+    centerX = min(
+        max(halfX + margin.left, centerX), size.width - halfX - margin.right);
+    return Offset(centerX - halfX, y - childSize.height - margin.bottom);
+  }
+
+  @override
+  BoxConstraints getConstraintsForChild(BoxConstraints constraints) {
+    return BoxConstraints.loose(constraints.biggest);
+  }
+
+  @override
+  bool shouldRelayout(covariant CenterAboveDelegate oldDelegate) {
+    return y != oldDelegate.y ||
+        left != oldDelegate.left ||
+        right != oldDelegate.right;
+  }
+}
+
+class FillDelegate extends SingleChildLayoutDelegate {
+  final Rect rect;
+  final EdgeInsets margin;
+
+  FillDelegate({
+    @required this.rect,
+    @required this.margin,
+  });
+
+  @override
+  Offset getPositionForChild(Size size, Size childSize) {
+    return rect.topLeft + margin.topLeft;
+  }
+
+  @override
+  BoxConstraints getConstraintsForChild(BoxConstraints constraints) {
+    return BoxConstraints.tightFor(
+        width: rect.width - margin.horizontal,
+        height: rect.height - margin.vertical);
+  }
+
+  @override
+  bool shouldRelayout(covariant FillDelegate oldDelegate) {
+    return rect != oldDelegate.rect || margin != oldDelegate.margin;
+  }
 }

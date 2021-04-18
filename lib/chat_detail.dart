@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:ping_fe/account.dart';
 import 'package:ping_fe/api.dart';
+import 'package:ping_fe/emoji/emoji_input.dart';
 import 'package:ping_fe/foundation.dart';
 import 'package:ping_fe/persistent.dart';
 import 'package:ping_fe/protos/chat.pb.dart';
@@ -102,16 +103,22 @@ class ChatDetail extends StatelessWidget {
           leading: BackButton(),
           title: Text('chat detail'),
         ),
-        body: StreamBuilder<MessageStore>(
-            stream: context.messageStore,
-            builder: (context, snapshot) {
-              if (snapshot.hasData) {
-                return _MessageList(store: snapshot.data.get(chatId));
-              }
-              return Center(
-                child: Text(snapshot.error?.toString() ?? 'no data'),
-              );
-            }));
+        backgroundColor: Color.lerp(Colors.white, Colors.black, 0.7),
+        body: SafeArea(
+            child: Column(children: [
+          Expanded(
+              child: StreamBuilder<MessageStore>(
+                  stream: context.messageStore,
+                  builder: (context, snapshot) {
+                    if (snapshot.hasData) {
+                      return _MessageList(store: snapshot.data.get(chatId));
+                    }
+                    return Center(
+                      child: Text(snapshot.error?.toString() ?? 'no data'),
+                    );
+                  })),
+          EmojiInput(),
+        ])));
   }
 }
 
