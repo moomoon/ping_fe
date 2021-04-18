@@ -32,21 +32,36 @@ class MessageSectionWidget extends StatelessWidget {
 }
 
 class MessageWidget extends StatelessWidget {
-  final Message message;
+  final MessageEntry message;
 
   const MessageWidget({Key key, @required this.message}) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
-    return Text(message.content,
-        style: TextStyle(
-          fontSize: 28,
-          fontFamilyFallback: (!kIsWeb && Platform.isAndroid)
-              ? <String>[
-                  'NotoColorEmoji',
-                ]
-              : null,
-        ));
+    return ExternalStatefulBuilder<MessageEntry>(
+        state: message,
+        builder: (context, ChangeNotifier state) {
+          MessageEntry entry = state;
+          final text =
+              entry.remoteMessage?.content ?? entry.localMessage?.content;
+          if (text == null) return const SizedBox();
+          Widget content = Text(text,
+              style: TextStyle(
+                fontSize: 28,
+                fontFamilyFallback: (!kIsWeb && Platform.isAndroid)
+                    ? <String>[
+                        'NotoColorEmoji',
+                      ]
+                    : null,
+              ));
+          if (entry.remoteMessage == null) {
+            content = Opacity(
+              opacity: 0.6,
+              child: content,
+            );
+          }
+          return content;
+        });
   }
 }
 
@@ -61,8 +76,10 @@ class _MessageList extends StatefulWidget {
   }
 }
 
-class _MessageListState extends State<_MessageList> with ListChanged<Message> {
+class _MessageListState extends State<_MessageList>
+    with ListChanged<MessageEntry> {
   final GlobalKey<AnimatedListState> _listKey = GlobalKey();
+  final ScrollController _scrollController = ScrollController();
   VoidCallback _listDisposable;
   @override
   void initState() {
@@ -88,6 +105,7 @@ class _MessageListState extends State<_MessageList> with ListChanged<Message> {
   @override
   Widget build(BuildContext context) {
     return AnimatedList(
+        controller: _scrollController,
         key: _listKey,
         initialItemCount: widget.store.messages.length,
         itemBuilder: (context, index, animation) {
@@ -98,12 +116,17 @@ class _MessageListState extends State<_MessageList> with ListChanged<Message> {
   }
 
   @override
-  inserted(int index) {
+  inserted(int index) async {
     _listKey.currentState?.insertItem(index);
+    if (widget.store.messages.length == index + 1) {
+      await WidgetsBinding.instance.endOfFrame;
+      _scrollController.animateTo(_scrollController.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 200), curve: Curves.ease);
+    }
   }
 
   @override
-  removed(int index, Message previous) {
+  removed(int index, MessageEntry previous) {
     _listKey.currentState?.removeItem(
         index,
         (context, animation) => FadeTransition(
@@ -151,38 +174,38 @@ class ChatDetailState extends State<ChatDetail> {
           ],
         ),
         backgroundColor: Color.lerp(Colors.white, Colors.black, 0.8),
-        body: SafeArea(
-            child: Column(children: [
-          Expanded(
-              child: StreamBuilder<MessageStore>(
-                  stream: context.messageStore,
-                  builder: (context, snapshot) {
-                    if (snapshot.hasData) {
-                      return _MessageList(
-                          store: snapshot.data.get(widget.chatId));
-                    }
-                    return Center(
-                      child: Text(snapshot.error?.toString() ?? 'no data'),
-                    );
-                  })),
-          StreamBuilder<RSocketConn>(
-              stream: context.rsockets,
-              builder: (context, snapshot) {
-                Widget content = EmojiInput();
-                if (snapshot.hasData) {
-                  content =
-                      content.onValueNotification<String, EmojiInput>((n) {
-                    snapshot.data.rsocket
-                        .fireAndForget('messages.send'.asRoute((SendMessage()
-                              ..chatId = widget.chatId
-                              ..content = n)
-                            .writeToBuffer()));
+        body: StreamBuilder<MessageStore>(
+            stream: context.messageStore,
+            builder: (context, snapshot) {
+              if (snapshot.hasData) {
+                MessageStore store = snapshot.data;
+                ChatMessageStore chatStore = store.get(widget.chatId);
+                return SafeArea(
+                    child: Column(children: [
+                  Expanded(child: _MessageList(store: chatStore)),
+                  EmojiInput().onValueNotification<String, EmojiInput>((n) {
+                    () async {
+                      MessageEntry entry = chatStore.appendLocal(
+                          LocalMessage.from(
+                              content: n, createdAt: DateTime.now()));
+                      final message = await snapshot.data.rsocket
+                          .requestResponse(
+                              'messages.send'.asRoute((SendMessage()
+                                    ..chatId = widget.chatId
+                                    ..content = n
+                                    ..localId = entry.localMessage.id)
+                                  .writeToBuffer()))
+                          .then((value) => Message.fromBuffer(value.data));
+                      entry.updateRemote(message);
+                    }();
                     return true;
-                  });
-                }
-                return content;
-              }).inheritingDefaultSlot(throwingEmoji)
-        ])));
+                  }).inheritingDefaultSlot(throwingEmoji)
+                ]));
+              }
+              return Center(
+                child: Text(snapshot.error?.toString() ?? 'no data'),
+              );
+            }));
   }
 }
 
@@ -219,7 +242,7 @@ class MessageStore {
         .asBroadcastStream(onListen: (sub) => _remoteSubscription = sub);
     messageStream.listen((message) async {
       print('got message $message');
-      get(message.chatId).append(message);
+      get(message.chatId).appendRemote(message);
     });
     if (_store != null) {
       _dbSubscription = messageStream.listen((message) async {
@@ -303,24 +326,76 @@ class MessageSection with ChangeNotifier {
   }
 }
 
+class MessageEntry extends ChangeNotifier {
+  LocalMessage localMessage;
+  Message remoteMessage;
+
+  updateRemote(Message message) {
+    this.remoteMessage = message;
+    notifyListeners();
+  }
+}
+
+class LocalMessage {
+  final String content;
+  final DateTime createdAt;
+  final Int64 id;
+
+  LocalMessage(
+      {@required this.content, @required this.createdAt, @required this.id});
+
+  factory LocalMessage.from({@required String content, @required createdAt}) {
+    return LocalMessage(content: content, createdAt: createdAt, id: nextId);
+  }
+
+  static Int64 get nextId {
+    return Int64(DateTime.now().millisecondsSinceEpoch);
+  }
+}
+
 class ChatMessageStore {
   final String chatId;
   final AccountPersistentStore store;
   // List<MessageSection> sections = [];
-  List<Message> messages = [];
-  ListChanged<Message> _listener;
+  List<MessageEntry> messages = [];
+  ListChanged<MessageEntry> _listener;
+  Map<Int64, MessageEntry> localIdToMessage = {};
   bool _sawStart = false;
   Future<void> _loadMoreFuture;
 
   ChatMessageStore({@required this.chatId, @required this.store})
-      : _listener = ListChanged.empty<Message>();
+      : _listener = ListChanged.empty<MessageEntry>();
 
   VoidCallback addListener(ListChanged l) {
     _listener += l;
     return () => _listener -= l;
   }
 
-  append(Message message) {
+  appendLocal(LocalMessage message) {
+    final entry = MessageEntry()..localMessage = message;
+    localIdToMessage[message.id] = entry;
+    VoidCallback listener;
+    listener = () {
+      if (entry.remoteMessage != null) {
+        entry.removeListener(listener);
+      }
+    };
+    entry.addListener(listener);
+    append(entry);
+    return entry;
+  }
+
+  appendRemote(Message message) {
+    if (localIdToMessage.containsKey(message.localId)) {
+      localIdToMessage[message.localId].updateRemote(message);
+    } else {
+      final entry = MessageEntry()..remoteMessage = message;
+      localIdToMessage[message.id] = entry;
+      append(entry);
+    }
+  }
+
+  append(MessageEntry message) {
     messages.add(message);
     // if (sections.lastOrNull?.append(message) == true) {
     //   return;
@@ -339,14 +414,19 @@ class ChatMessageStore {
     Completer<void> completer = Completer<void>();
     _loadMoreFuture = completer.future;
     try {
-      final firstMessageId = this.messages.firstOrNull?.id;
+      final firstMessageId = this
+          .messages
+          .map((e) => e.remoteMessage?.id)
+          .firstWhere((e) => e != null, orElse: () => Int64(-1));
       final messages = await store?.loadMessagesBefore(
             chatId: chatId,
             messageId: firstMessageId,
             limit: 100,
           ) ??
           [];
-      this.messages.insertAll(0, messages);
+      this
+          .messages
+          .insertAll(0, messages.map((e) => MessageEntry()..remoteMessage = e));
       // var newSectionCount = 0;
       // for (final message in messages.reversed) {
       //   if (sections.firstOrNull?.prepend(message) == true) continue;

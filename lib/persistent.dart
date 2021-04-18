@@ -30,7 +30,7 @@ extension PersistencyExt on Account {
         await openDatabase(join(await getDatabasesPath(), '$username.db'),
             onCreate: (db, version) async {
       await db.execute(
-        'CREATE TABLE messages(id INTEGER PRIMARY KEY, sender TEXT, content TEXT, chat_id TEXT, timestamp INTEGER)',
+        'CREATE TABLE messages(id INTEGER PRIMARY KEY, sender TEXT, content TEXT, chat_id TEXT, timestamp INTEGER, local_id INTEGER)',
       );
       await db.execute(
           'CREATE INDEX messages_chat_id_timestamp_idx on messages(chat_id, id)');
@@ -76,7 +76,8 @@ class MessageCodec with Encoder<Message>, Decoder<Message> {
       ..id = Int64(map['id'])
       ..chatId = map['chat_id']
       ..content = map['content']
-      ..senderId = map['sender'];
+      ..senderId = map['sender']
+      ..localId = Int64(map['local_id']);
   }
 
   @override
@@ -85,7 +86,8 @@ class MessageCodec with Encoder<Message>, Decoder<Message> {
       'id': value.id.toInt(),
       'chat_id': value.chatId,
       'content': value.content,
-      'sender': value.senderId
+      'sender': value.senderId,
+      'local_id': value.localId.toInt(),
     };
   }
 }
