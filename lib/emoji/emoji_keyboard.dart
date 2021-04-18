@@ -204,8 +204,9 @@ class EmojiKeyboardState extends State<EmojiKeyboard> {
 
 class EmojiInputEvent {
   final Emoji emoji;
+  final bool fromThrow;
 
-  EmojiInputEvent(this.emoji);
+  EmojiInputEvent(this.emoji, this.fromThrow);
 }
 
 class BackspaceEvent {}
@@ -558,18 +559,19 @@ class EmojiPanelState extends State<EmojiPanel> {
       itemBuilder: (context, index) {
         final emoji = emojis[index];
 
-        dispatchResult() {
+        dispatchResult(bool fromThrow) {
           var selected = _variationKey?.currentState?.selectedIndex;
           if (selected != null) {
             store.variationStreamOf(emoji).value = selected;
           }
           selected ??= 0;
           if (selected >= 1 && selected <= emoji.diversityChildren.length) {
-            ValueNotification(
-                    EmojiInputEvent(emoji.diversityChildren[selected - 1]))
+            ValueNotification(EmojiInputEvent(
+                    emoji.diversityChildren[selected - 1], fromThrow))
                 .dispatch(context);
           } else {
-            ValueNotification(EmojiInputEvent(emoji)).dispatch(context);
+            ValueNotification(EmojiInputEvent(emoji, fromThrow))
+                .dispatch(context);
           }
         }
 
@@ -717,7 +719,7 @@ class EmojiPanelState extends State<EmojiPanel> {
                           onPhoneShake: () {
                             _signalFired?.call();
                             _handledByThrow = true;
-                            dispatchResult();
+                            dispatchResult(true);
                           });
                       removeOverlays = () {
                         removeOverlays = null;
@@ -735,7 +737,7 @@ class EmojiPanelState extends State<EmojiPanel> {
                       removeOverlays?.call();
                       _shakeDetector?.stopListening();
                       _shakeDetector = null;
-                      if (!_handledByThrow) dispatchResult();
+                      if (!_handledByThrow) dispatchResult(false);
                     },
               onLongPressMoveUpdate: store == null
                   ? null
@@ -749,10 +751,10 @@ class EmojiPanelState extends State<EmojiPanel> {
                       if (selected >= 1 &&
                           selected <= emoji.diversityChildren.length) {
                         ValueNotification(EmojiInputEvent(
-                                emoji.diversityChildren[selected - 1]))
+                                emoji.diversityChildren[selected - 1], false))
                             .dispatch(context);
                       } else {
-                        ValueNotification(EmojiInputEvent(emoji))
+                        ValueNotification(EmojiInputEvent(emoji, false))
                             .dispatch(context);
                       }
                     },

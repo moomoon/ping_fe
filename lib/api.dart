@@ -26,8 +26,8 @@ class Api {
   }
 
   static const Api instance = Api(
-    httpBaseUrl: 'http://localhost:8080',
-    rsocketUrl: 'ws://localhost:8080/chat',
+    httpBaseUrl: 'http://192.168.50.147:8080',
+    rsocketUrl: 'ws://192.168.50.147:8080/chat',
   );
 }
 

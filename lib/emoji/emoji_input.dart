@@ -111,8 +111,13 @@ class EmojiInputState extends State<EmojiInput> {
             }
           },
         ).onValueNotificationDefaultSlot<EmojiInputEvent>((n) {
-          _insertText(n.emoji.text);
-          _hideToolbar();
+          if (n.fromThrow) {
+            ValueNotification<String, EmojiInput>(n.emoji.text)
+                .dispatch(context);
+          } else {
+            _insertText(n.emoji.text);
+            _hideToolbar();
+          }
           return true;
         }).onValueNotificationDefaultSlot<SpacebarEvent>((n) {
           _insertText(' ');

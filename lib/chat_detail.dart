@@ -31,6 +31,25 @@ class MessageSectionWidget extends StatelessWidget {
   }
 }
 
+class MessageWidget extends StatelessWidget {
+  final Message message;
+
+  const MessageWidget({Key key, @required this.message}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(message.content,
+        style: TextStyle(
+          fontSize: 28,
+          fontFamilyFallback: (!kIsWeb && Platform.isAndroid)
+              ? <String>[
+                  'NotoColorEmoji',
+                ]
+              : null,
+        ));
+  }
+}
+
 class _MessageList extends StatefulWidget {
   final ChatMessageStore store;
 
@@ -42,8 +61,7 @@ class _MessageList extends StatefulWidget {
   }
 }
 
-class _MessageListState extends State<_MessageList>
-    with ListChanged<MessageSection> {
+class _MessageListState extends State<_MessageList> with ListChanged<Message> {
   final GlobalKey<AnimatedListState> _listKey = GlobalKey();
   VoidCallback _listDisposable;
   @override
@@ -71,12 +89,11 @@ class _MessageListState extends State<_MessageList>
   Widget build(BuildContext context) {
     return AnimatedList(
         key: _listKey,
-        initialItemCount: widget.store.sections.length,
+        initialItemCount: widget.store.messages.length,
         itemBuilder: (context, index, animation) {
           return FadeTransition(
               opacity: animation,
-              child:
-                  MessageSectionWidget(section: widget.store.sections[index]));
+              child: MessageWidget(message: widget.store.messages[index]));
         });
   }
 
@@ -86,12 +103,11 @@ class _MessageListState extends State<_MessageList>
   }
 
   @override
-  removed(int index, MessageSection previous) {
+  removed(int index, Message previous) {
     _listKey.currentState?.removeItem(
         index,
         (context, animation) => FadeTransition(
-            opacity: animation,
-            child: MessageSectionWidget(section: previous)));
+            opacity: animation, child: MessageWidget(message: previous)));
   }
 }
 
@@ -290,13 +306,14 @@ class MessageSection with ChangeNotifier {
 class ChatMessageStore {
   final String chatId;
   final AccountPersistentStore store;
-  List<MessageSection> sections = [];
-  ListChanged<MessageSection> _listener;
+  // List<MessageSection> sections = [];
+  List<Message> messages = [];
+  ListChanged<Message> _listener;
   bool _sawStart = false;
   Future<void> _loadMoreFuture;
 
   ChatMessageStore({@required this.chatId, @required this.store})
-      : _listener = ListChanged.empty<MessageSection>();
+      : _listener = ListChanged.empty<Message>();
 
   VoidCallback addListener(ListChanged l) {
     _listener += l;
@@ -304,13 +321,14 @@ class ChatMessageStore {
   }
 
   append(Message message) {
-    if (sections.lastOrNull?.append(message) == true) {
-      return;
-    }
-    final section = MessageSection();
-    section.append(message);
-    sections.add(section);
-    _listener?.inserted(sections.length - 1);
+    messages.add(message);
+    // if (sections.lastOrNull?.append(message) == true) {
+    //   return;
+    // }
+    // final section = MessageSection();
+    // section.append(message);
+    // sections.add(section);
+    _listener?.inserted(messages.length - 1);
   }
 
   loadMoreHistory() async {
@@ -321,23 +339,24 @@ class ChatMessageStore {
     Completer<void> completer = Completer<void>();
     _loadMoreFuture = completer.future;
     try {
-      final firstMessageId = sections.firstOrNull?.messages?.firstOrNull?.id;
+      final firstMessageId = this.messages.firstOrNull?.id;
       final messages = await store?.loadMessagesBefore(
             chatId: chatId,
             messageId: firstMessageId,
             limit: 100,
           ) ??
           [];
-      var newSectionCount = 0;
-      for (final message in messages.reversed) {
-        if (sections.firstOrNull?.prepend(message) == true) continue;
-        final section = MessageSection();
-        section.prepend(message);
-        sections.insert(0, section);
-        newSectionCount++;
-      }
+      this.messages.insertAll(0, messages);
+      // var newSectionCount = 0;
+      // for (final message in messages.reversed) {
+      //   if (sections.firstOrNull?.prepend(message) == true) continue;
+      //   final section = MessageSection();
+      //   section.prepend(message);
+      //   sections.insert(0, section);
+      //   newSectionCount++;
+      // }
       if (_listener != null)
-        for (final index in Iterable<int>.generate(newSectionCount)) {
+        for (final index in Iterable<int>.generate(messages.length)) {
           _listener.inserted(index);
         }
     } catch (e) {
