@@ -120,7 +120,7 @@ extension AccountPersistentStoreOps on AccountPersistentStore {
     if (messageId >= 0) {
       if (where.isNotEmpty) where += ' and ';
       where += 'id < ?';
-      whereArgs.add(messageId);
+      whereArgs.add(messageId.toInt());
     }
     final raw = await db.query(
       'messages',

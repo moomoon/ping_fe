@@ -81,11 +81,18 @@ class _MessageListState extends State<_MessageList>
   final GlobalKey<AnimatedListState> _listKey = GlobalKey();
   final ScrollController _scrollController = ScrollController();
   VoidCallback _listDisposable;
+  VoidCallback _scrollControllerDisposable;
   @override
   void initState() {
     super.initState();
     _listDisposable =
         widget.store.addListener(this).andThen(() => _listDisposable = null);
+    _scrollControllerDisposable = _scrollController.addListenerDisposable(() {
+      if (_scrollController.offset <= 0) {
+        widget.store.loadMoreHistory();
+      }
+    });
+    widget.store.loadMoreHistory();
   }
 
   @override
@@ -99,6 +106,8 @@ class _MessageListState extends State<_MessageList>
   @override
   void dispose() {
     _listDisposable?.call();
+    _scrollControllerDisposable?.call();
+    _scrollController.dispose();
     super.dispose();
   }
 
@@ -266,8 +275,9 @@ extension on RSocketConn {
 
 extension MessageStoreExt on BuildContext {
   static Stream<MessageStore> _stream;
-  Stream<MessageStore> get messageStore {
-    return _stream ??= accountStore.stream
+  Stream<MessageStore> get messageStore async* {
+    if (MessageStore.instance != null) yield MessageStore.instance;
+    yield* _stream ??= accountStore.stream
         .rsockets(url: api.rsocketUrl)
         .transform(StreamTransformer<RSocketConn, MessageStore>.fromHandlers(
             handleData: (conn, sink) async {
@@ -368,6 +378,9 @@ class ChatMessageStore {
 
   VoidCallback addListener(ListChanged l) {
     _listener += l;
+    messages.asMap().keys.forEach((i) {
+      l.inserted(i);
+    });
     return () => _listener -= l;
   }
 
@@ -424,6 +437,7 @@ class ChatMessageStore {
             limit: 100,
           ) ??
           [];
+      if (messages.isEmpty) _sawStart = true;
       this
           .messages
           .insertAll(0, messages.map((e) => MessageEntry()..remoteMessage = e));

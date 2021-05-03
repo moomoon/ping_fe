@@ -48,7 +48,7 @@ class MainRouterDelegate extends RouterDelegate<RouteInformation>
   @override
   GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
-  pushChat(Chat chat) {
+  pushChat(ChatInfo chat) {
     _pages.add(MaterialPage(
         key: ValueKey('chat:${chat.id}'),
         child: ChatDetail(

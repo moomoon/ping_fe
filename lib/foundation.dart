@@ -846,7 +846,9 @@ abstract class ListChanged<E> {
   }
 
   ListChanged<E> operator -(ListChanged<E> e) {
-    if (identical(this, e)) return null;
+    if (identical(this, e)) {
+      return ListChanged.empty();
+    }
     return this;
   }
 

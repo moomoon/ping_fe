@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:ping_fe/account.dart';
 import 'package:ping_fe/api.dart';
+import 'package:ping_fe/avatar.dart';
 import 'package:ping_fe/foundation.dart';
 import 'package:ping_fe/main_router.dart';
 import 'package:ping_fe/protos/chat.pb.dart';
@@ -15,7 +17,7 @@ class ChatListWidget extends StatelessWidget {
   const ChatListWidget({Key key}) : super(key: key);
   @override
   Widget build(BuildContext context) {
-    Widget content = StreamBuilder<List<Chat>>(
+    Widget content = StreamBuilder<List<ChatInfo>>(
         stream: context.rsockets.chatList,
         builder: (context, snapshot) {
           return ListView.builder(
@@ -25,12 +27,15 @@ class ChatListWidget extends StatelessWidget {
                     onTap: () {
                       context.mainRouter.pushChat(snapshot.data[index]);
                     },
-                    child: Text(snapshot.data[index].id));
+                    child: ChatCell(chat: snapshot.data[index]));
               });
         });
+    content = Container(
+        child: content, color: Color.lerp(Colors.white, Colors.black, 0.8));
     return Scaffold(
         appBar: AppBar(
           title: Text('chat list'),
+          backgroundColor: Color.lerp(Colors.white, Colors.black, 0.9),
           actions: [
             StreamBuilder<RSocketConn>(
               stream: context.rsockets,
@@ -49,18 +54,38 @@ class ChatListWidget extends StatelessWidget {
   }
 }
 
+class ChatCell extends StatelessWidget {
+  final ChatInfo chat;
+
+  const ChatCell({Key key, @required this.chat}) : super(key: key);
+  @override
+  Widget build(BuildContext context) {
+    final currUser = context.accountStore.value?.username;
+    final other = chat.users.firstWhere(
+      (e) => e.username != currUser,
+      orElse: () => null,
+    );
+    return Row(
+      children: [Avatar(profile: other)],
+    );
+  }
+}
+
 class ChatListStore {
   final Account account;
   final RSocket rsocket;
-  Stream<List<Chat>> _stream;
-  StreamSubscription<List<Chat>> _remoteSubscription;
+  Stream<List<ChatInfo>> _stream;
+  StreamSubscription<List<ChatInfo>> _remoteSubscription;
 
   ChatListStore({@required this.account, @required this.rsocket});
 
-  Stream<List<Chat>> get stream => _stream ??= rsocket
+  Stream<List<ChatInfo>> get stream => _stream ??= rsocket
       .requestStream('chats.stream'.asRoute())
-      .map<Chat>((payload) => Chat.fromBuffer(payload.data))
-      .scan<List<Chat>>(<Chat>[], (l, r) => l..add(r)).asBroadcastStream(
+      .map<ChatInfo>((payload) => ChatInfo.fromBuffer(payload.data))
+      .scan<List<ChatInfo>>(
+          <ChatInfo>[],
+          (l, r) =>
+              l..add(r)).asBroadcastStream(
           onCancel: (s) => _remoteSubscription = s);
 
   Future<void> cancel() async {
@@ -76,8 +101,8 @@ extension on RSocketConn {
 }
 
 extension ChatList on Stream<RSocketConn> {
-  static Stream<List<Chat>> _stream;
-  Stream<List<Chat>> get chatList {
+  static Stream<List<ChatInfo>> _stream;
+  Stream<List<ChatInfo>> get chatList {
     return _stream ??= transform(
         StreamTransformer<RSocketConn, ChatListStore>.fromHandlers(
             handleData: (conn, sink) async {
@@ -86,7 +111,7 @@ extension ChatList on Stream<RSocketConn> {
       sink.add(ChatListStore.current = conn?.chatListStream);
     })).asyncExpand((holder) async* {
       if (holder == null)
-        yield <Chat>[];
+        yield <ChatInfo>[];
       else
         yield* holder.stream;
     }).asBroadcastStream();
