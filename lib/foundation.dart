@@ -162,7 +162,7 @@ class FadingEdges extends StatelessWidget {
 
 extension ListOps<E> on List<E> {
   E getOrNull(int index) {
-    if (index < length) return this[index];
+    if (index >= 0 && index < length) return this[index];
     return null;
   }
 }

@@ -1,11 +1,13 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:bubble/bubble.dart';
 import 'package:fixnum/fixnum.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:ping_fe/account.dart';
 import 'package:ping_fe/api.dart';
+import 'package:ping_fe/chat_list.dart';
 import 'package:ping_fe/emoji/emoji_input.dart';
 import 'package:ping_fe/emoji/widget_thrower.dart';
 import 'package:ping_fe/foundation.dart';
@@ -31,13 +33,27 @@ class MessageSectionWidget extends StatelessWidget {
   }
 }
 
+bool _isMessageLocal(MessageEntry entry) {
+  return entry.localMessage != null ||
+      entry.remoteMessage?.senderId == AccountStore.instance.value?.username;
+}
+
 class MessageWidget extends StatelessWidget {
   final MessageEntry message;
+  final MessageEntry previous;
 
-  const MessageWidget({Key key, @required this.message}) : super(key: key);
+  const MessageWidget(
+      {Key key, @required this.message, @required this.previous})
+      : super(key: key);
 
   @override
   Widget build(BuildContext context) {
+    final currLocal = _isMessageLocal(message);
+    bool prevLocal;
+    if (previous != null) {
+      prevLocal = _isMessageLocal(previous);
+    }
+    final hasNip = currLocal != prevLocal;
     return ExternalStatefulBuilder<MessageEntry>(
         state: message,
         builder: (context, ChangeNotifier state) {
@@ -54,6 +70,34 @@ class MessageWidget extends StatelessWidget {
                       ]
                     : null,
               ));
+          content = Bubble(
+            color: currLocal ? Colors.green.withAlpha(220) : Colors.grey[600],
+            margin: BubbleEdges.only(top: 10),
+            nip: hasNip
+                ? (currLocal ? BubbleNip.rightTop : BubbleNip.leftTop)
+                : null,
+            child: content,
+            stick: false,
+          );
+          content = Container(
+              margin: hasNip
+                  ? null
+                  : (currLocal
+                      ? const EdgeInsets.only(right: 8)
+                      : const EdgeInsets.only(left: 8)),
+              constraints: BoxConstraints.loose(
+                Size(
+                  200,
+                  double.infinity,
+                ),
+              ),
+              alignment:
+                  currLocal ? Alignment.centerRight : Alignment.centerLeft,
+              child: content);
+          content = Container(
+            alignment: currLocal ? Alignment.centerRight : Alignment.centerLeft,
+            child: content,
+          );
           if (entry.remoteMessage == null) {
             content = Opacity(
               opacity: 0.6,
@@ -67,8 +111,10 @@ class MessageWidget extends StatelessWidget {
 
 class _MessageList extends StatefulWidget {
   final ChatMessageStore store;
+  final ChatInfo chat;
 
-  const _MessageList({Key key, this.store}) : super(key: key);
+  const _MessageList({Key key, @required this.store, @required this.chat})
+      : super(key: key);
 
   @override
   State<StatefulWidget> createState() {
@@ -120,7 +166,9 @@ class _MessageListState extends State<_MessageList>
         itemBuilder: (context, index, animation) {
           return FadeTransition(
               opacity: animation,
-              child: MessageWidget(message: widget.store.messages[index]));
+              child: MessageWidget(
+                  previous: widget.store.messages.getOrNull(index - 1),
+                  message: widget.store.messages[index]));
         });
   }
 
@@ -143,18 +191,48 @@ class _MessageListState extends State<_MessageList>
   }
 }
 
-class ChatDetail extends StatefulWidget {
+class ChatDetail extends StatelessWidget {
   final String chatId;
 
   const ChatDetail({Key key, @required this.chatId}) : super(key: key);
 
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<ChatInfo>(
+        initialData: ChatListStore.current?.chatInfo
+            ?.firstWhere((c) => c.id == chatId, orElse: () => null),
+        stream: context.rsockets.chatList
+            .map((cs) =>
+                cs.firstWhere((c) => c.id == chatId, orElse: () => null))
+            .where((c) => c != null)
+            .distinct(),
+        builder: (context, snapshot) {
+          if (snapshot.hasError) {
+            return Center(
+              child: Text(snapshot.error?.toString() ?? 'unknown error'),
+            );
+          }
+          if (!snapshot.hasData) {
+            return Center(
+              child: Text('loading'),
+            );
+          }
+          return ChatDetailWidget(chat: snapshot.data);
+        });
+  }
+}
+
+class ChatDetailWidget extends StatefulWidget {
+  final ChatInfo chat;
+
+  const ChatDetailWidget({Key key, @required this.chat}) : super(key: key);
   @override
   State<StatefulWidget> createState() {
     return ChatDetailState();
   }
 }
 
-class ChatDetailState extends State<ChatDetail> {
+class ChatDetailState extends State<ChatDetailWidget> {
   BehaviorSubject<Emoji> throwingEmoji = BehaviorSubject();
 
   @override
@@ -188,10 +266,11 @@ class ChatDetailState extends State<ChatDetail> {
             builder: (context, snapshot) {
               if (snapshot.hasData) {
                 MessageStore store = snapshot.data;
-                ChatMessageStore chatStore = store.get(widget.chatId);
+                ChatMessageStore chatStore = store.get(widget.chat.id);
                 return SafeArea(
                     child: Column(children: [
-                  Expanded(child: _MessageList(store: chatStore)),
+                  Expanded(
+                      child: _MessageList(store: chatStore, chat: widget.chat)),
                   EmojiInput().onValueNotification<String, EmojiInput>((n) {
                     () async {
                       MessageEntry entry = chatStore.appendLocal(
@@ -200,7 +279,7 @@ class ChatDetailState extends State<ChatDetail> {
                       final message = await snapshot.data.rsocket
                           .requestResponse(
                               'messages.send'.asRoute((SendMessage()
-                                    ..chatId = widget.chatId
+                                    ..chatId = widget.chat.id
                                     ..content = n
                                     ..localId = entry.localMessage.id)
                                   .writeToBuffer()))
@@ -250,7 +329,6 @@ class MessageStore {
         .map<Message>((payload) => Message.fromBuffer(payload.data))
         .asBroadcastStream(onListen: (sub) => _remoteSubscription = sub);
     messageStream.listen((message) async {
-      print('got message $message');
       get(message.chatId).appendRemote(message);
     });
     if (_store != null) {
@@ -378,9 +456,6 @@ class ChatMessageStore {
 
   VoidCallback addListener(ListChanged l) {
     _listener += l;
-    messages.asMap().keys.forEach((i) {
-      l.inserted(i);
-    });
     return () => _listener -= l;
   }
 

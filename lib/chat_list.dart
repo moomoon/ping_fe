@@ -76,17 +76,21 @@ class ChatListStore {
   final RSocket rsocket;
   Stream<List<ChatInfo>> _stream;
   StreamSubscription<List<ChatInfo>> _remoteSubscription;
+  List<ChatInfo> _chatInfo = [];
+  List<ChatInfo> get chatInfo => _chatInfo;
 
   ChatListStore({@required this.account, @required this.rsocket});
 
   Stream<List<ChatInfo>> get stream => _stream ??= rsocket
-      .requestStream('chats.stream'.asRoute())
-      .map<ChatInfo>((payload) => ChatInfo.fromBuffer(payload.data))
-      .scan<List<ChatInfo>>(
-          <ChatInfo>[],
-          (l, r) =>
-              l..add(r)).asBroadcastStream(
-          onCancel: (s) => _remoteSubscription = s);
+          .requestStream('chats.stream'.asRoute())
+          .map<ChatInfo>((payload) => ChatInfo.fromBuffer(payload.data))
+          .scan<List<ChatInfo>>(
+        <ChatInfo>[],
+        (l, r) => l..add(r),
+      ).asBroadcastStream(onCancel: (s) => _remoteSubscription = s)
+            ..listen((event) {
+              _chatInfo = event;
+            });
 
   Future<void> cancel() async {
     await _remoteSubscription.cancel();
@@ -102,8 +106,11 @@ extension on RSocketConn {
 
 extension ChatList on Stream<RSocketConn> {
   static Stream<List<ChatInfo>> _stream;
-  Stream<List<ChatInfo>> get chatList {
-    return _stream ??= transform(
+  Stream<List<ChatInfo>> get chatList async* {
+    if (ChatListStore.current?.chatInfo != null) {
+      yield ChatListStore.current.chatInfo;
+    }
+    yield* _stream ??= transform(
         StreamTransformer<RSocketConn, ChatListStore>.fromHandlers(
             handleData: (conn, sink) async {
       if (conn?.account == ChatListStore.current?.account) return;
