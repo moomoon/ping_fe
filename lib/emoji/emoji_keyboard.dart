@@ -87,7 +87,11 @@ class _EmojiDataSource implements EmojiDataSource {
 
   @override
   Stream<List<Emoji>> get latest async* {
-    yield [];
+    for (final a in List.generate(199, (index) => index)) {
+      yield List.generate(
+          5, (index) => noto_emojis.values.first[Random.secure().nextInt(39)]);
+      await Future.delayed(Duration(seconds: 2));
+    }
   }
 }
 
@@ -569,15 +573,25 @@ class EmojiPanelState extends State<EmojiPanel> {
 
   @override
   Widget build(BuildContext context) {
+    final latestSize = widget.latestRow * widget.columns;
+    EmojiDataSource dataSource = context.peekInheritedDefaultSlot();
     return GridView.builder(
       controller: controller,
-      itemCount: emojis.length,
+      itemCount: emojis.length + latestSize,
       physics: RowSnappingPhysics(rowHeight: lineHeight),
       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
           mainAxisExtent: lineHeight, crossAxisCount: widget.columns),
       itemBuilder: (context, index) {
-        final emoji = emojis[index];
-        return StaticEmojiCell(emoji: emoji);
+        if (index < latestSize) {
+          return StreamBuilder<Emoji>(
+            stream: dataSource.latestOfIndex(index),
+            builder: (context, snapshot) {
+              return DynamicEmojiCell(index: index, emoji: snapshot.data);
+            },
+          );
+        }
+        final emoji = emojis[index - latestSize];
+        return StaticEmojiWidget(emoji: emoji);
       },
     );
   }
@@ -636,10 +650,11 @@ class EmojiVibration {
 
 class CompositeDisposable {
   List<VoidCallback> _disposables = [];
-  VoidCallback add(VoidCallback disposable) {
+  VoidCallback Function() add(VoidCallback disposable) {
     _disposables.add(disposable);
     return () {
-      _disposables.remove(disposable);
+      if (_disposables.remove(disposable)) return disposable;
+      return null;
     };
   }
 
@@ -672,12 +687,56 @@ class OverlayState {
   }
 }
 
-class StaticEmojiCell extends StatelessWidget {
+class DynamicEmojiCell extends StatelessWidget {
+  final int index;
   final Emoji emoji;
 
-  const StaticEmojiCell({Key key, @required this.emoji}) : super(key: key);
+  const DynamicEmojiCell({Key key, @required this.index, @required this.emoji})
+      : super(key: key);
+
   @override
   Widget build(BuildContext context) {
+    final delay = Duration(milliseconds: index * 80);
+    final duration = Duration(milliseconds: 250);
+    final start =
+        (delay.inMicroseconds / duration.inMicroseconds).clamp(0.0, 1.0);
+    return AnimatedSwitcher(
+      child: emoji != null
+          ? StaticEmojiWidget(
+              key: ValueKey(emoji),
+              emoji: emoji,
+            )
+          : const SizedBox(),
+      duration: duration + delay,
+      switchInCurve:
+          Interval(start, 1, curve: Interval(0.5, 1, curve: Curves.ease)),
+      switchOutCurve:
+          Interval(start, 1, curve: Interval(0, 1, curve: Curves.easeIn)),
+      reverseDuration: duration + delay,
+      transitionBuilder: (child, animation) => ScaleTransition(
+        scale: animation,
+        child: child,
+      ),
+    );
+  }
+}
+
+class StaticEmojiWidget extends StatefulWidget {
+  final Emoji emoji;
+
+  const StaticEmojiWidget({Key key, @required this.emoji}) : super(key: key);
+
+  @override
+  State<StatefulWidget> createState() {
+    return StaticEmojiState();
+  }
+}
+
+class StaticEmojiState extends State<StaticEmojiWidget> {
+  CompositeDisposable localOverlay = CompositeDisposable();
+  @override
+  Widget build(BuildContext context) {
+    Emoji emoji = widget.emoji;
     OverlayState overlayState = context.peekInheritedDefaultSlot();
     EmojiStore store = context.peekInheritedDefaultSlot();
     EmojiVibration vibration = context.peekInheritedDefaultSlot();
@@ -730,8 +789,11 @@ class StaticEmojiCell extends StatelessWidget {
               ? null
               : (detail) {
                   vibration.signalLoaded();
+                  localOverlay.clear();
                   overlayState.overlay.clear();
                   handledByThrow = false;
+                  final subject = context
+                      .peekInheritedDefaultSlot<BehaviorSubject<Emoji>>();
                   final cover = context.showOverlay(
                       position: OverlayPosition.fill,
                       margin: const EdgeInsets.only(top: 4),
@@ -767,8 +829,6 @@ class StaticEmojiCell extends StatelessWidget {
                               .map((event) => event.globalPosition),
                           selectedIndex: store.variationStreamOf(emoji).value,
                           onSelectionChanged: (selected) {
-                            final subject = context.peekInheritedDefaultSlot<
-                                BehaviorSubject<Emoji>>();
                             if (selected >= 1 &&
                                 selected <= emoji.diversityChildren.length) {
                               subject.value =
@@ -799,9 +859,14 @@ class StaticEmojiCell extends StatelessWidget {
                     handledByThrow = true;
                     dispatchResult(true);
                   });
-                  overlayState.overlay.add(() {
+                  final dispose = overlayState.overlay.add(() {
                     cover.remove();
                     variations.remove();
+                  });
+                  localOverlay.add(() {
+                    dispose()?.call();
+                    overlayState.stopShakeDetector();
+                    subject.value = null;
                   });
                 },
           onLongPressEnd: store == null
@@ -837,6 +902,12 @@ class StaticEmojiCell extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  @override
+  void dispose() {
+    super.dispose();
+    localOverlay.clear();
   }
 }
 
