@@ -234,6 +234,7 @@ class ChatDetailWidget extends StatefulWidget {
 
 class ChatDetailState extends State<ChatDetailWidget> {
   BehaviorSubject<Emoji> throwingEmoji = BehaviorSubject();
+  bool showKeyboard = true;
 
   @override
   Widget build(BuildContext context) {
@@ -243,6 +244,13 @@ class ChatDetailState extends State<ChatDetailWidget> {
           leading: BackButton(),
           title: Text('chat detail'),
           actions: [
+            TextButton(
+                child: Text('keyboard'),
+                onPressed: () {
+                  setState(() {
+                    showKeyboard = !showKeyboard;
+                  });
+                }),
             WidgetThrower()
                 .inheriting<Stream<Widget>, WidgetThrower>(throwingEmoji.stream
                     .map((event) => event == null
@@ -271,7 +279,17 @@ class ChatDetailState extends State<ChatDetailWidget> {
                     child: Column(children: [
                   Expanded(
                       child: _MessageList(store: chatStore, chat: widget.chat)),
-                  EmojiInput().onValueNotification<String, EmojiInput>((n) {
+                  AnimatedCrossFade(
+                          firstChild: EmojiInput(),
+                          secondChild: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              mainAxisSize: MainAxisSize.max,
+                              children: [Text('latest')]),
+                          crossFadeState: showKeyboard
+                              ? CrossFadeState.showFirst
+                              : CrossFadeState.showSecond,
+                          duration: Duration(milliseconds: 200))
+                      .onValueNotification<String, EmojiInput>((n) {
                     () async {
                       MessageEntry entry = chatStore.appendLocal(
                           LocalMessage.from(
@@ -287,7 +305,7 @@ class ChatDetailState extends State<ChatDetailWidget> {
                       entry.updateRemote(message);
                     }();
                     return true;
-                  }).inheritingDefaultSlot(throwingEmoji)
+                  }).inheritingDefaultSlot(throwingEmoji),
                 ]));
               }
               return Center(

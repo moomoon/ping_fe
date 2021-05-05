@@ -73,6 +73,7 @@ bool _versionCompatibility(
 
 /// All [Emoji] categories
 enum EmojiCategory {
+  latest,
   people,
   nature,
   food,

@@ -29,6 +29,20 @@ class EmojiDataSource {
   factory EmojiDataSource.shared() => const _EmojiDataSource();
 }
 
+extension LatestIndividualSource on EmojiDataSource {
+  Stream<Emoji> latestOfIndex(int index) async* {
+    final defaultVal = () => noto_emojis.values.first.first;
+    final upstream = latest
+        .map((es) => es.getOrNull(index) ?? defaultVal())
+        .asBroadcastStream();
+    yield await Future.any([
+      Future.delayed(const Duration(milliseconds: 17), defaultVal),
+      upstream.first
+    ]);
+    yield* upstream;
+  }
+}
+
 class _EmojiDataSource implements EmojiDataSource {
   const _EmojiDataSource();
   @override
@@ -79,11 +93,13 @@ class _EmojiDataSource implements EmojiDataSource {
 
 class EmojiKeyboard extends StatefulWidget {
   final int column;
+  final int latestRow;
   final bool collapsed;
 
   const EmojiKeyboard({
     Key key,
     this.column: 7,
+    this.latestRow: 1,
     @required this.collapsed,
   }) : super(key: key);
 
@@ -96,6 +112,10 @@ class EmojiKeyboard extends StatefulWidget {
 class EmojiKeyboardState extends State<EmojiKeyboard> {
   final GlobalKey<ShortcutBarState> shortcutKey = GlobalKey();
   final GlobalKey<EmojiPanelState> emojiPanelKey = GlobalKey();
+
+  final OverlayState overlayState = new OverlayState();
+  final EmojiVibration vibrations = new EmojiVibration();
+
   bool shortcutTriggeredAction = false;
 
   Widget build(BuildContext context) {
@@ -114,6 +134,7 @@ class EmojiKeyboardState extends State<EmojiKeyboard> {
                   key: emojiPanelKey,
                   emojis: snapshot.data ?? [],
                   columns: widget.column,
+                  latestRow: widget.latestRow,
                   onScroll: (controller) {
                     if (shortcutTriggeredAction == true) return;
                     final shortcut = shortcutKey.currentState;
@@ -138,7 +159,7 @@ class EmojiKeyboardState extends State<EmojiKeyboard> {
                       : null,
                   builder: (context, t) {
                     return Padding(
-                      padding: EdgeInsets.all(8),
+                      padding: EdgeInsets.all(6),
                       child: Icon(
                         t.icon,
                         size: 18,
@@ -148,7 +169,7 @@ class EmojiKeyboardState extends State<EmojiKeyboard> {
                   },
                   dimmedBuilder: (context, t) {
                     return Padding(
-                      padding: EdgeInsets.all(8),
+                      padding: EdgeInsets.all(6),
                       child: Icon(
                         t.dimmedIcon,
                         size: 18,
@@ -162,7 +183,7 @@ class EmojiKeyboardState extends State<EmojiKeyboard> {
                     SpacebarButton(),
                     Expanded(child: content),
                     FadeButton(
-                      padding: EdgeInsets.all(8),
+                      padding: EdgeInsets.all(6),
                       child: Icon(
                         Icons.backspace_outlined,
                         size: 18,
@@ -198,7 +219,10 @@ class EmojiKeyboardState extends State<EmojiKeyboard> {
           ],
         ),
       ),
-    ).inheritingDefaultSlot(widget);
+    )
+        .inheritingDefaultSlot(widget)
+        .inheritingDefaultSlot(vibrations)
+        .inheritingDefaultSlot(overlayState..newTracker());
   }
 }
 
@@ -223,26 +247,23 @@ class SpacebarButton extends StatefulWidget {
 }
 
 class SpacebarButtonState extends State<SpacebarButton> {
-  MoveTracker _tracker;
-  GlobalKey<VariationSelectorState> _variationKey = GlobalKey();
-  VoidCallback removeOverlays;
-
   @override
   Widget build(BuildContext context) {
-    _tracker?.close();
-    _tracker = MoveTracker();
+    OverlayState overlayState = context.peekInheritedDefaultSlot();
+    EmojiVibration vibrations = context.peekInheritedDefaultSlot();
     return FadeButton(
-      padding: EdgeInsets.all(8),
+      padding: EdgeInsets.all(6),
       child: Icon(
         Icons.space_bar,
         size: 18,
         color: Colors.white.withAlpha(200),
       ),
       onPressed: () {
+        vibrations.signalFired();
         ValueNotification(SpacebarEvent()).dispatch(context);
       },
       onLongPressStart: (detail) {
-        removeOverlays?.call();
+        overlayState.overlay.clear();
         const offset = Offset(0, -4);
         final cover = context.showOverlay(
           position: OverlayPosition.fill,
@@ -267,8 +288,9 @@ class SpacebarButtonState extends State<SpacebarButton> {
               ),
             ),
             child: VariationSelector(
-              key: _variationKey,
-              offset: _tracker.move.map((event) => event.globalPosition),
+              key: overlayState.variationKey,
+              offset: overlayState.tracker.move
+                  .map((event) => event.globalPosition),
               selectedIndex: 0,
               children: [
                 Padding(
@@ -295,18 +317,17 @@ class SpacebarButtonState extends State<SpacebarButton> {
             ),
           ),
         );
-        removeOverlays = () {
-          removeOverlays = null;
-          cover.remove();
-          variations.remove();
-        };
+        overlayState.overlay.add(cover.remove);
+        overlayState.overlay.add(variations.remove);
       },
       onLongPressMoveUpdate: (detail) {
-        _tracker.addMove(detail);
+        overlayState.tracker.addMove(detail);
       },
       onLongPressEnd: (detail) {
-        removeOverlays?.call();
-        final index = _variationKey?.currentState?.selectedIndex ?? 1;
+        overlayState.overlay.clear();
+        vibrations.signalFired();
+        final index =
+            overlayState.variationKey?.currentState?.selectedIndex ?? 1;
         if (index == 0) {
           ValueNotification(EnterEvent()).dispatch(context);
         } else {
@@ -320,6 +341,8 @@ class SpacebarButtonState extends State<SpacebarButton> {
 extension on EmojiCategory {
   IconData get icon {
     switch (this) {
+      case EmojiCategory.latest:
+        return Icons.access_time_rounded;
       case EmojiCategory.people:
         return Icons.emoji_emotions_rounded;
       case EmojiCategory.nature:
@@ -341,6 +364,8 @@ extension on EmojiCategory {
 
   IconData get dimmedIcon {
     switch (this) {
+      case EmojiCategory.latest:
+        return Icons.access_time_outlined;
       case EmojiCategory.people:
         return Icons.emoji_emotions_outlined;
       case EmojiCategory.nature:
@@ -454,8 +479,13 @@ class EmojiPanel extends StatefulWidget {
   final List<MapEntry<EmojiCategory, List<Emoji>>> emojis;
   final Function(ScrollController c) onScroll;
   final int columns;
+  final int latestRow;
   const EmojiPanel(
-      {@required this.emojis, Key key, @required this.columns, this.onScroll})
+      {@required this.emojis,
+      Key key,
+      @required this.columns,
+      @required this.latestRow,
+      this.onScroll})
       : super(key: key);
   @override
   State<StatefulWidget> createState() {
@@ -485,8 +515,7 @@ class EmojiPanelState extends State<EmojiPanel> {
   ScrollController controller = ScrollController();
   List<MapEntry<int, EmojiCategory>> offset;
   List<Emoji> emojis;
-  VoidCallback _signalLoaded;
-  VoidCallback _signalFired;
+
   @override
   void initState() {
     super.initState();
@@ -538,18 +567,8 @@ class EmojiPanelState extends State<EmojiPanel> {
           orElse: () => null)
       ?.value;
 
-  GlobalKey<VariationSelectorState> _variationKey = GlobalKey();
-  MoveTracker _tracker;
-
-  VoidCallback removeOverlays;
-  bool _handledByThrow = false;
-  ShakeDetector _shakeDetector;
-
   @override
   Widget build(BuildContext context) {
-    _tracker?.close();
-    _tracker = MoveTracker();
-    EmojiStore store = context.peekInheritedDefaultSlot();
     return GridView.builder(
       controller: controller,
       itemCount: emojis.length,
@@ -558,209 +577,7 @@ class EmojiPanelState extends State<EmojiPanel> {
           mainAxisExtent: lineHeight, crossAxisCount: widget.columns),
       itemBuilder: (context, index) {
         final emoji = emojis[index];
-
-        dispatchResult(bool fromThrow) {
-          var selected = _variationKey?.currentState?.selectedIndex;
-          if (selected != null) {
-            store.variationStreamOf(emoji).value = selected;
-          }
-          selected ??= 0;
-          if (selected >= 1 && selected <= emoji.diversityChildren.length) {
-            ValueNotification(EmojiInputEvent(
-                    emoji.diversityChildren[selected - 1], fromThrow))
-                .dispatch(context);
-          } else {
-            ValueNotification(EmojiInputEvent(emoji, fromThrow))
-                .dispatch(context);
-          }
-        }
-
-        final textStyle = DefaultTextStyle.of(context).style.copyWith(
-              fontSize: 32,
-              fontFamilyFallback: (!kIsWeb && Platform.isAndroid)
-                  ? <String>[
-                      'NotoColorEmoji',
-                    ]
-                  : null,
-            );
-        return DefaultTextStyle(
-          style: textStyle,
-          child: Builder(
-            builder: (context) => PatchedGestureDetector(
-              behavior: HitTestBehavior.opaque,
-              child: Container(
-                  alignment: Alignment.center,
-                  child: store == null
-                      ? Text(emoji.text)
-                      : StreamBuilder<Emoji>(
-                          initialData: emoji,
-                          stream: store
-                              .variationStreamOf(emoji)
-                              .stream
-                              .map((event) {
-                            if (event > 0 &&
-                                event <= emoji.diversityChildren.length)
-                              return emoji.diversityChildren[event - 1];
-                            return emoji;
-                          }),
-                          builder: (context, snapshot) {
-                            return Text((snapshot.data ?? emoji).text);
-                          })),
-              onLongPressStart: store == null
-                  ? null
-                  : (detail) {
-                      if (_signalLoaded == null) {
-                        () async {
-                          final hasVibration = await Vibration.hasVibrator();
-                          if (hasVibration != true) {
-                            _signalLoaded = () {};
-                            _signalFired = () {};
-                            return;
-                          }
-                          final hasPattern =
-                              await Vibration.hasCustomVibrationsSupport();
-                          final hasAmplitude =
-                              await Vibration.hasAmplitudeControl();
-                          if (hasPattern == true) {
-                            _signalLoaded = () => Vibration.vibrate(
-                                pattern: [0, 8, 160, 8],
-                                intensities: [100, 160]);
-                            _signalFired = () => Vibration.vibrate(
-                                pattern: [0, 8], intensities: [255]);
-                          } else if (hasAmplitude == true) {
-                            _signalLoaded = () async {
-                              await Vibration.vibrate(amplitude: 100);
-                              await Vibration.vibrate(amplitude: 160);
-                            };
-                            _signalFired =
-                                () => Vibration.vibrate(amplitude: 255);
-                          } else {
-                            _signalLoaded = () async {
-                              await Vibration.vibrate();
-                              await Vibration.vibrate();
-                            };
-                            _signalFired = () => Vibration.vibrate();
-                          }
-                          _signalLoaded();
-                        }();
-                      } else {
-                        _signalLoaded();
-                      }
-                      removeOverlays?.call();
-                      _handledByThrow = false;
-                      final cover = context.showOverlay(
-                          position: OverlayPosition.fill,
-                          margin: const EdgeInsets.only(top: 4),
-                          builder: (_) => Padding(
-                              padding: emoji.hasChildren
-                                  ? const EdgeInsets.symmetric(horizontal: 4)
-                                  : EdgeInsets.zero,
-                              child: Container(
-                                decoration: ShapeDecoration(
-                                    shape: DropdownRRBorder(
-                                        lowerRadius: 4,
-                                        upperRadius: emoji.hasChildren ? 4 : 8),
-                                    color: Color.lerp(
-                                        Colors.white, Colors.black, 0.6)),
-                              )));
-                      final variations = context.showOverlay(
-                        position: OverlayPosition.centerAbove,
-                        margin: const EdgeInsets.only(
-                            left: 8, right: 8, bottom: -5),
-                        builder: (_) => DefaultTextStyle(
-                          style: textStyle,
-                          child: Container(
-                            padding: EdgeInsets.all(8),
-                            decoration: ShapeDecoration(
-                              color:
-                                  Color.lerp(Colors.white, Colors.black, 0.6),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(4),
-                              ),
-                            ),
-                            child: VariationSelector(
-                              key: _variationKey,
-                              offset: _tracker.move
-                                  .map((event) => event.globalPosition),
-                              selectedIndex:
-                                  store.variationStreamOf(emoji).value,
-                              onSelectionChanged: (selected) {
-                                final subject =
-                                    context.peekInheritedDefaultSlot<
-                                        BehaviorSubject<Emoji>>();
-                                if (selected >= 1 &&
-                                    selected <=
-                                        emoji.diversityChildren.length) {
-                                  subject.value =
-                                      emoji.diversityChildren[selected - 1];
-                                } else {
-                                  subject.value = emoji;
-                                }
-                              },
-                              children: [
-                                Padding(
-                                  padding:
-                                      const EdgeInsets.symmetric(horizontal: 4),
-                                  child: Text(emoji.text),
-                                ),
-                                for (final child in emoji.diversityChildren)
-                                  Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                        horizontal: 4),
-                                    child: Text(child.text),
-                                  ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      );
-                      _shakeDetector = ShakeDetector.autoStart(
-                          shakeThresholdGravity: 1.6,
-                          onPhoneShake: () {
-                            _signalFired?.call();
-                            _handledByThrow = true;
-                            dispatchResult(true);
-                          });
-                      removeOverlays = () {
-                        removeOverlays = null;
-                        cover.remove();
-                        variations.remove();
-                      };
-                    },
-              onLongPressEnd: store == null
-                  ? null
-                  : (detail) {
-                      context
-                          .peekInheritedDefaultSlot<BehaviorSubject<Emoji>>()
-                          .value = null;
-
-                      removeOverlays?.call();
-                      _shakeDetector?.stopListening();
-                      _shakeDetector = null;
-                      if (!_handledByThrow) dispatchResult(false);
-                    },
-              onLongPressMoveUpdate: store == null
-                  ? null
-                  : (detail) {
-                      _tracker.addMove(detail);
-                    },
-              onTap: store == null
-                  ? null
-                  : () {
-                      final selected = store.variationStreamOf(emoji).value;
-                      if (selected >= 1 &&
-                          selected <= emoji.diversityChildren.length) {
-                        ValueNotification(EmojiInputEvent(
-                                emoji.diversityChildren[selected - 1], false))
-                            .dispatch(context);
-                      } else {
-                        ValueNotification(EmojiInputEvent(emoji, false))
-                            .dispatch(context);
-                      }
-                    },
-            ),
-          ),
-        );
+        return StaticEmojiCell(emoji: emoji);
       },
     );
   }
@@ -773,6 +590,253 @@ class EmojiPanelState extends State<EmojiPanel> {
   void dispose() {
     controller.dispose();
     super.dispose();
+  }
+}
+
+class EmojiVibration {
+  EmojiVibration();
+  VoidCallback _signalFired;
+  VoidCallback _signalLoaded;
+
+  Future<void> initVibration() {
+    if (_signalFired != null) return Future.sync(() => null);
+    return () async {
+      final hasVibration = await Vibration.hasVibrator();
+      if (hasVibration != true) {
+        _signalLoaded = () {};
+        _signalFired = () {};
+        return;
+      }
+      final hasPattern = await Vibration.hasCustomVibrationsSupport();
+      final hasAmplitude = await Vibration.hasAmplitudeControl();
+      if (hasPattern == true) {
+        _signalLoaded = () =>
+            Vibration.vibrate(pattern: [0, 8, 160, 8], intensities: [100, 160]);
+        _signalFired =
+            () => Vibration.vibrate(pattern: [0, 8], intensities: [255]);
+      } else if (hasAmplitude == true) {
+        _signalLoaded = () async {
+          await Vibration.vibrate(amplitude: 100);
+          await Vibration.vibrate(amplitude: 160);
+        };
+        _signalFired = () => Vibration.vibrate(amplitude: 255);
+      } else {
+        _signalLoaded = () async {
+          await Vibration.vibrate();
+          await Vibration.vibrate();
+        };
+        _signalFired = () => Vibration.vibrate();
+      }
+    }();
+  }
+
+  Future<void> signalFired() => initVibration().then((n) => _signalFired());
+  Future<void> signalLoaded() => initVibration().then((n) => _signalLoaded());
+}
+
+class CompositeDisposable {
+  List<VoidCallback> _disposables = [];
+  VoidCallback add(VoidCallback disposable) {
+    _disposables.add(disposable);
+    return () {
+      _disposables.remove(disposable);
+    };
+  }
+
+  clear() {
+    final curr = _disposables;
+    _disposables = [];
+    curr.reversed.forEach((d) => d());
+  }
+}
+
+class OverlayState {
+  final GlobalKey<VariationSelectorState> variationKey = GlobalKey();
+  final overlay = new CompositeDisposable();
+  MoveTracker _tracker;
+  ShakeDetector _shakeDetector;
+
+  newShakeDetector(VoidCallback f) {
+    ShakeDetector.autoStart(shakeThresholdGravity: 1.6, onPhoneShake: f);
+  }
+
+  stopShakeDetector() {
+    _shakeDetector?.stopListening();
+    _shakeDetector = null;
+  }
+
+  MoveTracker get tracker => _tracker;
+  newTracker() {
+    _tracker?.close();
+    _tracker = new MoveTracker();
+  }
+}
+
+class StaticEmojiCell extends StatelessWidget {
+  final Emoji emoji;
+
+  const StaticEmojiCell({Key key, @required this.emoji}) : super(key: key);
+  @override
+  Widget build(BuildContext context) {
+    OverlayState overlayState = context.peekInheritedDefaultSlot();
+    EmojiStore store = context.peekInheritedDefaultSlot();
+    EmojiVibration vibration = context.peekInheritedDefaultSlot();
+    bool handledByThrow = false;
+    dispatchResult(bool fromThrow) {
+      var selected = overlayState.variationKey?.currentState?.selectedIndex;
+      if (selected != null) {
+        store.variationStreamOf(emoji).value = selected;
+      }
+      selected ??= 0;
+      if (selected >= 1 && selected <= emoji.diversityChildren.length) {
+        ValueNotification(EmojiInputEvent(
+                emoji.diversityChildren[selected - 1], fromThrow))
+            .dispatch(context);
+      } else {
+        ValueNotification(EmojiInputEvent(emoji, fromThrow)).dispatch(context);
+      }
+    }
+
+    final textStyle = DefaultTextStyle.of(context).style.copyWith(
+          fontSize: 32,
+          fontFamilyFallback: (!kIsWeb && Platform.isAndroid)
+              ? <String>[
+                  'NotoColorEmoji',
+                ]
+              : null,
+        );
+    return DefaultTextStyle(
+      style: textStyle,
+      child: Builder(
+        builder: (context) => PatchedGestureDetector(
+          behavior: HitTestBehavior.opaque,
+          child: Container(
+              alignment: Alignment.center,
+              child: store == null
+                  ? Text(emoji.text)
+                  : StreamBuilder<Emoji>(
+                      initialData: emoji,
+                      stream:
+                          store.variationStreamOf(emoji).stream.map((event) {
+                        if (event > 0 &&
+                            event <= emoji.diversityChildren.length)
+                          return emoji.diversityChildren[event - 1];
+                        return emoji;
+                      }),
+                      builder: (context, snapshot) {
+                        return Text((snapshot.data ?? emoji).text);
+                      })),
+          onLongPressStart: store == null
+              ? null
+              : (detail) {
+                  vibration.signalLoaded();
+                  overlayState.overlay.clear();
+                  handledByThrow = false;
+                  final cover = context.showOverlay(
+                      position: OverlayPosition.fill,
+                      margin: const EdgeInsets.only(top: 4),
+                      builder: (_) => Padding(
+                          padding: emoji.hasChildren
+                              ? const EdgeInsets.symmetric(horizontal: 4)
+                              : EdgeInsets.zero,
+                          child: Container(
+                            decoration: ShapeDecoration(
+                                shape: DropdownRRBorder(
+                                    lowerRadius: 4,
+                                    upperRadius: emoji.hasChildren ? 4 : 8),
+                                color: Color.lerp(
+                                    Colors.white, Colors.black, 0.6)),
+                          )));
+                  final variations = context.showOverlay(
+                    position: OverlayPosition.centerAbove,
+                    margin:
+                        const EdgeInsets.only(left: 8, right: 8, bottom: -5),
+                    builder: (_) => DefaultTextStyle(
+                      style: textStyle,
+                      child: Container(
+                        padding: EdgeInsets.all(8),
+                        decoration: ShapeDecoration(
+                          color: Color.lerp(Colors.white, Colors.black, 0.6),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                        ),
+                        child: VariationSelector(
+                          key: overlayState.variationKey,
+                          offset: overlayState.tracker.move
+                              .map((event) => event.globalPosition),
+                          selectedIndex: store.variationStreamOf(emoji).value,
+                          onSelectionChanged: (selected) {
+                            final subject = context.peekInheritedDefaultSlot<
+                                BehaviorSubject<Emoji>>();
+                            if (selected >= 1 &&
+                                selected <= emoji.diversityChildren.length) {
+                              subject.value =
+                                  emoji.diversityChildren[selected - 1];
+                            } else {
+                              subject.value = emoji;
+                            }
+                          },
+                          children: [
+                            Padding(
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 4),
+                              child: Text(emoji.text),
+                            ),
+                            for (final child in emoji.diversityChildren)
+                              Padding(
+                                padding:
+                                    const EdgeInsets.symmetric(horizontal: 4),
+                                child: Text(child.text),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                  overlayState.newShakeDetector(() {
+                    vibration.signalFired();
+                    handledByThrow = true;
+                    dispatchResult(true);
+                  });
+                  overlayState.overlay.add(() {
+                    cover.remove();
+                    variations.remove();
+                  });
+                },
+          onLongPressEnd: store == null
+              ? null
+              : (detail) {
+                  context
+                      .peekInheritedDefaultSlot<BehaviorSubject<Emoji>>()
+                      .value = null;
+
+                  overlayState.overlay.clear();
+                  overlayState.stopShakeDetector();
+                  if (!handledByThrow) dispatchResult(false);
+                },
+          onLongPressMoveUpdate: store == null
+              ? null
+              : (detail) {
+                  overlayState.tracker.addMove(detail);
+                },
+          onTap: store == null
+              ? null
+              : () {
+                  final selected = store.variationStreamOf(emoji).value;
+                  if (selected >= 1 &&
+                      selected <= emoji.diversityChildren.length) {
+                    ValueNotification(EmojiInputEvent(
+                            emoji.diversityChildren[selected - 1], false))
+                        .dispatch(context);
+                  } else {
+                    ValueNotification(EmojiInputEvent(emoji, false))
+                        .dispatch(context);
+                  }
+                },
+        ),
+      ),
+    );
   }
 }
 
