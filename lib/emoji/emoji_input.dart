@@ -4,7 +4,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'fade_button.dart';
-import 'widget_thrower.dart';
 import 'base_emoji.dart';
 import '../foundation.dart';
 import 'emoji_keyboard.dart';
@@ -21,73 +20,154 @@ class EmojiInputState extends State<EmojiInput> {
   TextEditingController _controller = TextEditingController();
   GlobalKey _textFieldKey = GlobalKey();
   FocusNode _focusNode = FocusNode();
-  // BehaviorSubject<Emoji> emojis = BehaviorSubject();
+
+  EmojiVibration vibration = EmojiVibration();
+  VariationState variationState = VariationState();
+
   @override
   Widget build(BuildContext context) {
+    BehaviorSubject<bool> collapsed =
+        context.peekInherited<BehaviorSubject<bool>, EmojiCollapsed>();
+    final collapsedWidget = CollapsedInput();
+    final expandedWidget = buildExpanded(context);
+    Widget content = StreamBuilder<bool>(
+        stream: collapsed.stream.distinct().asBroadcastStream(),
+        initialData: false,
+        builder: (context, snapshot) {
+          return AnimatedCrossFade(
+              firstChild: collapsedWidget,
+              secondChild: expandedWidget,
+              crossFadeState: snapshot.data != true
+                  ? CrossFadeState.showSecond
+                  : CrossFadeState.showFirst,
+              duration: const Duration(milliseconds: 200));
+        });
+    final streamed = content;
+    content = FutureBuilder<EmojiStore>(
+      future: EmojiStore.getInstance(),
+      builder: (context, snapshot) {
+        if (snapshot.hasData) {
+          return streamed.inheritingDefaultSlot(snapshot.data);
+        } else {
+          return streamed;
+        }
+      },
+    );
+    content = content
+        .inheritingDefaultSlot(variationState..newTracker())
+        .inheriting(vibration)
+        .inheritingDefaultSlot(EmojiDataSource.shared())
+        .onValueNotificationDefaultSlot<SpacebarEvent>((n) {
+      _insertText(' ');
+      _hideToolbar();
+      return true;
+    }).onValueNotificationDefaultSlot<EnterEvent>((n) {
+      _insertText('\n');
+      _hideToolbar();
+      return true;
+    }).onValueNotificationDefaultSlot<BackspaceEvent>((n) {
+      _backspace();
+      _hideToolbar();
+      return true;
+    }).onValueNotificationDefaultSlot<EmojiInputEvent>((n) {
+      if (n.fromThrow) {
+        ValueNotification<String, EmojiInput>(n.emoji.text).dispatch(context);
+      } else {
+        _insertText(n.emoji.text);
+        _hideToolbar();
+        collapsed.value = false;
+      }
+      return true;
+    });
+    return content;
+  }
+
+  Widget buildExpanded(BuildContext context) {
+    BehaviorSubject<bool> collapsed =
+        context.peekInherited<BehaviorSubject<bool>, EmojiCollapsed>();
     Widget content = Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        // WidgetThrower(),
         Container(
           height: 0.5,
           color: Colors.white10,
         ),
         Container(
           color: Color.lerp(Colors.white, Colors.black, 0.85),
-          padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          child: Stack(
+          padding: EdgeInsets.only(top: 8, right: 16, bottom: 8),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              _AutofillGroup(
-                child: TextField(
-                  focusNode: _focusNode,
-                  decoration: InputDecoration(
-                    hintStyle: TextStyle(color: Colors.grey[600]),
-                    fillColor: Color.lerp(Colors.white, Colors.black, 0.8),
-                    filled: true,
-                    isDense: true,
-                    focusColor: Colors.red,
-                    border: OutlineInputBorder(borderSide: BorderSide.none),
-                    contentPadding: EdgeInsets.only(
-                      top: 4,
-                      left: 4,
-                      bottom: 4,
-                      right: 40,
-                    ),
-                  ),
-                  key: _textFieldKey,
-                  controller: _controller,
-                  autofillHints: ['dummy'],
-                  minLines: 1,
-                  style: TextStyle(
-                    fontSize: 28,
-                    fontFamilyFallback: (!kIsWeb && Platform.isAndroid)
-                        ? <String>[
-                            'NotoColorEmoji',
-                          ]
-                        : null,
-                  ),
-                  maxLines: 4,
-                ),
-              ),
-              Positioned(
-                right: 0,
-                bottom: 0,
-                child: FadeButton(
-                  padding: EdgeInsets.zero,
+              FadeButton(
+                  padding: EdgeInsets.only(left: 16, right: 12),
                   child: Icon(
-                    Icons.send,
+                    Icons.keyboard_hide_outlined,
                     color: Colors.white.withAlpha(200),
-                    size: 18,
+                    size: 22,
                   ),
                   onPressed: () {
-                    if (_controller.text?.isNotEmpty == true) {
-                      ValueNotification<String, EmojiInput>(_controller.text)
-                          .dispatch(context);
-                      _controller.text = '';
-                    }
-                  },
+                    collapsed.value = true;
+                  }),
+              Expanded(
+                child: Stack(
+                  children: [
+                    _AutofillGroup(
+                      child: TextField(
+                        focusNode: _focusNode,
+                        decoration: InputDecoration(
+                          hintStyle: TextStyle(color: Colors.grey[600]),
+                          fillColor:
+                              Color.lerp(Colors.white, Colors.black, 0.8),
+                          filled: true,
+                          isDense: true,
+                          focusColor: Colors.red,
+                          border:
+                              OutlineInputBorder(borderSide: BorderSide.none),
+                          contentPadding: EdgeInsets.only(
+                            top: 4,
+                            left: 4,
+                            bottom: 4,
+                            right: 40,
+                          ),
+                        ),
+                        key: _textFieldKey,
+                        controller: _controller,
+                        autofillHints: ['dummy'],
+                        minLines: 1,
+                        style: TextStyle(
+                          fontSize: 28,
+                          fontFamilyFallback: (!kIsWeb && Platform.isAndroid)
+                              ? <String>[
+                                  'NotoColorEmoji',
+                                ]
+                              : null,
+                        ),
+                        maxLines: 4,
+                      ),
+                    ),
+                    Positioned(
+                      right: 0,
+                      bottom: 0,
+                      child: FadeButton(
+                        padding: EdgeInsets.zero,
+                        child: Icon(
+                          Icons.send,
+                          color: Colors.white.withAlpha(200),
+                          size: 18,
+                        ),
+                        onPressed: () {
+                          if (_controller.text?.isNotEmpty == true) {
+                            ValueNotification<String, EmojiInput>(
+                                    _controller.text)
+                                .dispatch(context);
+                            _controller.text = '';
+                          }
+                        },
+                      ),
+                    )
+                  ],
                 ),
-              )
+              ),
             ],
           ),
         ),
@@ -95,45 +175,10 @@ class EmojiInputState extends State<EmojiInput> {
           height: 0.5,
           color: Colors.white10,
         ),
-        FutureBuilder<EmojiStore>(
-          future: EmojiStore.getInstance(),
-          builder: (context, snapshot) {
-            if (snapshot.hasData) {
-              return EmojiKeyboard(
-                collapsed: false,
-              )
-                  .inheritingDefaultSlot(EmojiDataSource.shared())
-                  .inheritingDefaultSlot(snapshot.data);
-            } else {
-              return EmojiKeyboard(
-                collapsed: false,
-              ).inheritingDefaultSlot(EmojiDataSource.shared());
-            }
-          },
-        ).onValueNotificationDefaultSlot<EmojiInputEvent>((n) {
-          if (n.fromThrow) {
-            ValueNotification<String, EmojiInput>(n.emoji.text)
-                .dispatch(context);
-          } else {
-            _insertText(n.emoji.text);
-            _hideToolbar();
-          }
-          return true;
-        }).onValueNotificationDefaultSlot<SpacebarEvent>((n) {
-          _insertText(' ');
-          _hideToolbar();
-          return true;
-        }).onValueNotificationDefaultSlot<EnterEvent>((n) {
-          _insertText('\n');
-          _hideToolbar();
-          return true;
-        }).onValueNotificationDefaultSlot<BackspaceEvent>((n) {
-          _backspace();
-          _hideToolbar();
-          return true;
-        })
+        const EmojiKeyboard(),
       ],
     );
+    content = SafeArea(child: content);
     return content;
     // .inheritingDefaultSlot(emojis)
     // .inheriting<Stream<Widget>, WidgetThrower>(emojis.stream
@@ -222,6 +267,47 @@ class EmojiInputState extends State<EmojiInput> {
       baseOffset: newStart,
       extentOffset: newStart,
     );
+  }
+}
+
+// marker for behaviorsubject
+class EmojiCollapsed {}
+
+class CollapsedInput extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    BehaviorSubject<bool> collapsed =
+        context.peekInherited<BehaviorSubject<bool>, EmojiCollapsed>();
+    EmojiDataSource dataSource = context.peekInheritedDefaultSlot();
+    Widget content = Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        FadeButton(
+            padding: EdgeInsets.only(left: 16, right: 12),
+            child: Icon(
+              Icons.keyboard_outlined,
+              color: Colors.white.withAlpha(200),
+              size: 22,
+            ),
+            onPressed: () {
+              collapsed.value = false;
+            }),
+        ...List.generate(
+            6,
+            (index) => StreamBuilder<Emoji>(
+                stream: dataSource.latestOfIndex(index),
+                builder: (context, snapshot) => Expanded(
+                    child:
+                        DynamicEmojiCell(index: index, emoji: snapshot.data))))
+      ],
+    );
+    content = SafeArea(child: content);
+    content = Container(
+        color: Color.lerp(Colors.white, Colors.black, 0.85),
+        padding: EdgeInsets.only(top: 8, right: 16, bottom: 8),
+        child: content);
+
+    return content;
   }
 }
 

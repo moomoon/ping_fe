@@ -128,9 +128,12 @@ class _MessageListState extends State<_MessageList>
   final ScrollController _scrollController = ScrollController();
   VoidCallback _listDisposable;
   VoidCallback _scrollControllerDisposable;
+  StreamSubscription _collapseSubscription;
   @override
   void initState() {
     super.initState();
+    BehaviorSubject<bool> collapsed =
+        context.peekInherited<BehaviorSubject<bool>, EmojiCollapsed>();
     _listDisposable =
         widget.store.addListener(this).andThen(() => _listDisposable = null);
     _scrollControllerDisposable = _scrollController.addListenerDisposable(() {
@@ -138,6 +141,16 @@ class _MessageListState extends State<_MessageList>
         widget.store.loadMoreHistory();
       }
     });
+    _collapseSubscription = collapsed.stream
+        .map((c) => c == true)
+        .distinct()
+        .where((c) => !c)
+        .listen((expanded) async {
+      await Future.delayed(const Duration(milliseconds: 2000));
+      _scrollController.animateTo(_scrollController.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 300), curve: Curves.linear);
+    });
+
     widget.store.loadMoreHistory();
   }
 
@@ -154,6 +167,7 @@ class _MessageListState extends State<_MessageList>
     _listDisposable?.call();
     _scrollControllerDisposable?.call();
     _scrollController.dispose();
+    _collapseSubscription?.cancel();
     super.dispose();
   }
 
@@ -234,6 +248,7 @@ class ChatDetailWidget extends StatefulWidget {
 
 class ChatDetailState extends State<ChatDetailWidget> {
   BehaviorSubject<Emoji> throwingEmoji = BehaviorSubject();
+  BehaviorSubject<bool> keyboardCollapsed = BehaviorSubject();
   bool showKeyboard = true;
 
   @override
@@ -276,42 +291,35 @@ class ChatDetailState extends State<ChatDetailWidget> {
                 MessageStore store = snapshot.data;
                 ChatMessageStore chatStore = store.get(widget.chat.id);
                 return SafeArea(
+                    bottom: false,
                     child: Column(children: [
-                  Expanded(
-                      child: _MessageList(store: chatStore, chat: widget.chat)),
-                  AnimatedCrossFade(
-                          firstChild: EmojiInput(),
-                          secondChild: Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              mainAxisSize: MainAxisSize.max,
-                              children: [Text('latest')]),
-                          crossFadeState: showKeyboard
-                              ? CrossFadeState.showFirst
-                              : CrossFadeState.showSecond,
-                          duration: Duration(milliseconds: 200))
-                      .onValueNotification<String, EmojiInput>((n) {
-                    () async {
-                      MessageEntry entry = chatStore.appendLocal(
-                          LocalMessage.from(
-                              content: n, createdAt: DateTime.now()));
-                      final message = await snapshot.data.rsocket
-                          .requestResponse(
-                              'messages.send'.asRoute((SendMessage()
-                                    ..chatId = widget.chat.id
-                                    ..content = n
-                                    ..localId = entry.localMessage.id)
-                                  .writeToBuffer()))
-                          .then((value) => Message.fromBuffer(value.data));
-                      entry.updateRemote(message);
-                    }();
-                    return true;
-                  }).inheritingDefaultSlot(throwingEmoji),
-                ]));
+                      Expanded(
+                          child: _MessageList(
+                              store: chatStore, chat: widget.chat)),
+                      EmojiInput().onValueNotification<String, EmojiInput>((n) {
+                        () async {
+                          MessageEntry entry = chatStore.appendLocal(
+                              LocalMessage.from(
+                                  content: n, createdAt: DateTime.now()));
+                          final message = await snapshot.data.rsocket
+                              .requestResponse(
+                                  'messages.send'.asRoute((SendMessage()
+                                        ..chatId = widget.chat.id
+                                        ..content = n
+                                        ..localId = entry.localMessage.id)
+                                      .writeToBuffer()))
+                              .then((value) => Message.fromBuffer(value.data));
+                          entry.updateRemote(message);
+                        }();
+                        return true;
+                      }).inheritingDefaultSlot(throwingEmoji),
+                    ]));
               }
               return Center(
                 child: Text(snapshot.error?.toString() ?? 'no data'),
               );
-            }));
+            })).inheriting<BehaviorSubject<bool>, EmojiCollapsed>(
+        keyboardCollapsed);
   }
 }
 

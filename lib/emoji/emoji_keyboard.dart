@@ -98,13 +98,11 @@ class _EmojiDataSource implements EmojiDataSource {
 class EmojiKeyboard extends StatefulWidget {
   final int column;
   final int latestRow;
-  final bool collapsed;
 
   const EmojiKeyboard({
     Key key,
     this.column: 7,
     this.latestRow: 1,
-    @required this.collapsed,
   }) : super(key: key);
 
   @override
@@ -116,10 +114,6 @@ class EmojiKeyboard extends StatefulWidget {
 class EmojiKeyboardState extends State<EmojiKeyboard> {
   final GlobalKey<ShortcutBarState> shortcutKey = GlobalKey();
   final GlobalKey<EmojiPanelState> emojiPanelKey = GlobalKey();
-
-  final OverlayState overlayState = new OverlayState();
-  final EmojiVibration vibrations = new EmojiVibration();
-
   bool shortcutTriggeredAction = false;
 
   Widget build(BuildContext context) {
@@ -223,10 +217,7 @@ class EmojiKeyboardState extends State<EmojiKeyboard> {
           ],
         ),
       ),
-    )
-        .inheritingDefaultSlot(widget)
-        .inheritingDefaultSlot(vibrations)
-        .inheritingDefaultSlot(overlayState..newTracker());
+    ).inheritingDefaultSlot(widget);
   }
 }
 
@@ -253,7 +244,7 @@ class SpacebarButton extends StatefulWidget {
 class SpacebarButtonState extends State<SpacebarButton> {
   @override
   Widget build(BuildContext context) {
-    OverlayState overlayState = context.peekInheritedDefaultSlot();
+    VariationState variationState = context.peekInheritedDefaultSlot();
     EmojiVibration vibrations = context.peekInheritedDefaultSlot();
     return FadeButton(
       padding: EdgeInsets.all(6),
@@ -267,7 +258,7 @@ class SpacebarButtonState extends State<SpacebarButton> {
         ValueNotification(SpacebarEvent()).dispatch(context);
       },
       onLongPressStart: (detail) {
-        overlayState.overlay.clear();
+        variationState.overlay.clear();
         const offset = Offset(0, -4);
         final cover = context.showOverlay(
           position: OverlayPosition.fill,
@@ -292,8 +283,8 @@ class SpacebarButtonState extends State<SpacebarButton> {
               ),
             ),
             child: VariationSelector(
-              key: overlayState.variationKey,
-              offset: overlayState.tracker.move
+              key: variationState.variationKey,
+              offset: variationState.tracker.move
                   .map((event) => event.globalPosition),
               selectedIndex: 0,
               children: [
@@ -321,17 +312,17 @@ class SpacebarButtonState extends State<SpacebarButton> {
             ),
           ),
         );
-        overlayState.overlay.add(cover.remove);
-        overlayState.overlay.add(variations.remove);
+        variationState.overlay.add(cover.remove);
+        variationState.overlay.add(variations.remove);
       },
       onLongPressMoveUpdate: (detail) {
-        overlayState.tracker.addMove(detail);
+        variationState.tracker.addMove(detail);
       },
       onLongPressEnd: (detail) {
-        overlayState.overlay.clear();
+        variationState.overlay.clear();
         vibrations.signalFired();
         final index =
-            overlayState.variationKey?.currentState?.selectedIndex ?? 1;
+            variationState.variationKey?.currentState?.selectedIndex ?? 1;
         if (index == 0) {
           ValueNotification(EnterEvent()).dispatch(context);
         } else {
@@ -395,60 +386,60 @@ extension on BuildContext {
   EmojiDataSource get dataSource => peekInherited();
 }
 
-class EmojiActionRow extends StatelessWidget {
-  const EmojiActionRow({Key key}) : super(key: key);
-  @override
-  Widget build(BuildContext context) {
-    final column = context.column;
-    return StreamBuilder<List<Emoji>>(
-        stream: context.dataSource.latest.asyncMap((latest) async {
-          if (latest.length >= column - 1) return latest;
-          final emojis = await context.dataSource.emojis;
-          final copy = [...latest];
-          for (final cat in emojis) {
-            for (final emoji in cat.value)
-              if (!copy.contains(emoji)) {
-                copy.add(emoji);
-                if (copy.length >= column - 1) return copy;
-              }
-          }
-          return copy;
-        }),
-        initialData: const [],
-        builder: (context, snapshot) {
-          return Row(
-            children: [
-              for (int index in Iterable.generate(column - 1))
-                EmojiCell(tag: index, emoji: snapshot.data?.getOrNull(index)),
-              const EmojiActionButton(),
-            ],
-          );
-        }).inheritingDefaultSlot<EmojiCellBuilder>(buildEmojiCell);
-  }
+// class EmojiActionRow extends StatelessWidget {
+//   const EmojiActionRow({Key key}) : super(key: key);
+//   @override
+//   Widget build(BuildContext context) {
+//     final column = context.column;
+//     return StreamBuilder<List<Emoji>>(
+//         stream: context.dataSource.latest.asyncMap((latest) async {
+//           if (latest.length >= column - 1) return latest;
+//           final emojis = await context.dataSource.emojis;
+//           final copy = [...latest];
+//           for (final cat in emojis) {
+//             for (final emoji in cat.value)
+//               if (!copy.contains(emoji)) {
+//                 copy.add(emoji);
+//                 if (copy.length >= column - 1) return copy;
+//               }
+//           }
+//           return copy;
+//         }),
+//         initialData: const [],
+//         builder: (context, snapshot) {
+//           return Row(
+//             children: [
+//               for (int index in Iterable.generate(column - 1))
+//                 EmojiCell(tag: index, emoji: snapshot.data?.getOrNull(index)),
+//               const EmojiActionButton(),
+//             ],
+//           );
+//         }).inheritingDefaultSlot<EmojiCellBuilder>(buildEmojiCell);
+//   }
 
-  Widget buildEmojiCell(BuildContext context, Object tag, Emoji emoji) {
-    final index = tag is int ? tag : 0;
-    final delay = Duration(milliseconds: index * 100);
-    final duration = Duration(milliseconds: 400);
-    final start = delay.inMicroseconds / duration.inMicroseconds;
-    return AnimatedSwitcher(
-      duration: delay + duration,
-      switchInCurve:
-          Interval(start, 1, curve: Interval(0.5, 1, curve: Curves.ease)),
-      switchOutCurve:
-          Interval(start, 1, curve: Interval(0, 1, curve: Curves.easeIn)),
-      reverseDuration: delay + duration,
-      transitionBuilder: (context, animation) => AnimatedBuilder(
-        animation: animation,
-        child: EmojiWidget(
-          emoji: emoji,
-        ),
-        builder: (context, child) =>
-            Transform.scale(scale: animation.value, child: child),
-      ),
-    );
-  }
-}
+//   Widget buildEmojiCell(BuildContext context, Object tag, Emoji emoji) {
+//     final index = tag is int ? tag : 0;
+//     final delay = Duration(milliseconds: index * 100);
+//     final duration = Duration(milliseconds: 400);
+//     final start = delay.inMicroseconds / duration.inMicroseconds;
+//     return AnimatedSwitcher(
+//       duration: delay + duration,
+//       switchInCurve:
+//           Interval(start, 1, curve: Interval(0.5, 1, curve: Curves.ease)),
+//       switchOutCurve:
+//           Interval(start, 1, curve: Interval(0, 1, curve: Curves.easeIn)),
+//       reverseDuration: delay + duration,
+//       transitionBuilder: (context, animation) => AnimatedBuilder(
+//         animation: animation,
+//         child: EmojiWidget(
+//           emoji: emoji,
+//         ),
+//         builder: (context, child) =>
+//             Transform.scale(scale: animation.value, child: child),
+//       ),
+//     );
+//   }
+// }
 
 class EmojiWidget extends StatelessWidget {
   final Emoji emoji;
@@ -460,24 +451,24 @@ class EmojiWidget extends StatelessWidget {
   }
 }
 
-class EmojiActionButton extends StatelessWidget {
-  const EmojiActionButton({Key key}) : super(key: key);
+// class EmojiActionButton extends StatelessWidget {
+//   const EmojiActionButton({Key key}) : super(key: key);
 
-  @override
-  Widget build(BuildContext context) {
-    final collapsed =
-        context.dependOnInheritedDefaultSlot<EmojiKeyboard>().collapsed;
-    return AnimatedSwitcher(
-      duration: Duration(milliseconds: 400),
-      child: IconButton(
-        icon: Icon(collapsed ? Icons.keyboard : Icons.keyboard_arrow_down),
-        onPressed: () {
-          EmojiActionButtonTapped(collapsed: collapsed).dispatch(context);
-        },
-      ),
-    );
-  }
-}
+//   @override
+//   Widget build(BuildContext context) {
+//     final collapsed =
+//         context.dependOnInheritedDefaultSlot<EmojiKeyboard>().collapsed;
+//     return AnimatedSwitcher(
+//       duration: Duration(milliseconds: 400),
+//       child: IconButton(
+//         icon: Icon(collapsed ? Icons.keyboard : Icons.keyboard_arrow_down),
+//         onPressed: () {
+//           EmojiActionButtonTapped(collapsed: collapsed).dispatch(context);
+//         },
+//       ),
+//     );
+//   }
+// }
 
 class EmojiPanel extends StatefulWidget {
   final List<MapEntry<EmojiCategory, List<Emoji>>> emojis;
@@ -665,7 +656,7 @@ class CompositeDisposable {
   }
 }
 
-class OverlayState {
+class VariationState {
   final GlobalKey<VariationSelectorState> variationKey = GlobalKey();
   final overlay = new CompositeDisposable();
   MoveTracker _tracker;
@@ -737,7 +728,7 @@ class StaticEmojiState extends State<StaticEmojiWidget> {
   @override
   Widget build(BuildContext context) {
     Emoji emoji = widget.emoji;
-    OverlayState overlayState = context.peekInheritedDefaultSlot();
+    VariationState overlayState = context.peekInheritedDefaultSlot();
     EmojiStore store = context.peekInheritedDefaultSlot();
     EmojiVibration vibration = context.peekInheritedDefaultSlot();
     bool handledByThrow = false;
