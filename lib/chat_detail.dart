@@ -14,6 +14,7 @@ import 'package:ping_fe/foundation.dart';
 import 'package:ping_fe/persistent.dart';
 import 'package:ping_fe/protos/chat.pb.dart';
 import 'package:rsocket/rsocket.dart';
+import 'package:scroll_to_index/scroll_to_index.dart';
 
 import 'emoji/base_emoji.dart';
 
@@ -125,7 +126,8 @@ class _MessageList extends StatefulWidget {
 class _MessageListState extends State<_MessageList>
     with ListChanged<MessageEntry> {
   final GlobalKey<AnimatedListState> _listKey = GlobalKey();
-  final ScrollController _scrollController = ScrollController();
+  final AutoScrollController _scrollController =
+      AutoScrollController(suggestedRowHeight: 54);
   VoidCallback _listDisposable;
   VoidCallback _scrollControllerDisposable;
   StreamSubscription _collapseSubscription;
@@ -145,10 +147,8 @@ class _MessageListState extends State<_MessageList>
         .map((c) => c == true)
         .distinct()
         .where((c) => !c)
-        .listen((expanded) async {
-      await Future.delayed(const Duration(milliseconds: 2000));
-      _scrollController.animateTo(_scrollController.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 300), curve: Curves.linear);
+        .listen((expanded) {
+      _scrollController.scrollToIndex(widget.store.messages.length - 1);
     });
 
     widget.store.loadMoreHistory();
@@ -178,11 +178,17 @@ class _MessageListState extends State<_MessageList>
         key: _listKey,
         initialItemCount: widget.store.messages.length,
         itemBuilder: (context, index, animation) {
-          return FadeTransition(
-              opacity: animation,
-              child: MessageWidget(
-                  previous: widget.store.messages.getOrNull(index - 1),
-                  message: widget.store.messages[index]));
+          return AutoScrollTag(
+            key: ValueKey(index),
+            controller: _scrollController,
+            index: index,
+            child: FadeTransition(
+                opacity: animation,
+                child: MessageWidget(
+                    previous: widget.store.messages.getOrNull(index - 1),
+                    message: widget.store.messages[index])),
+            highlightColor: Colors.black.withOpacity(0.1),
+          );
         });
   }
 
@@ -191,8 +197,7 @@ class _MessageListState extends State<_MessageList>
     _listKey.currentState?.insertItem(index);
     if (widget.store.messages.length == index + 1) {
       await WidgetsBinding.instance.endOfFrame;
-      _scrollController.animateTo(_scrollController.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 200), curve: Curves.ease);
+      _scrollController.scrollToIndex(widget.store.messages.length - 1);
     }
   }
 
