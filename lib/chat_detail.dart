@@ -131,6 +131,7 @@ class _MessageListState extends State<_MessageList>
   VoidCallback _listDisposable;
   VoidCallback _scrollControllerDisposable;
   StreamSubscription _collapseSubscription;
+  bool _disableScroll = false;
   @override
   void initState() {
     super.initState();
@@ -142,13 +143,19 @@ class _MessageListState extends State<_MessageList>
       if (_scrollController.offset <= 0) {
         widget.store.loadMoreHistory();
       }
+      if (collapsed.value == false && _disableScroll == true) {
+        _disableScroll = false;
+        collapsed.value = true;
+      }
     });
     _collapseSubscription = collapsed.stream
         .map((c) => c == true)
         .distinct()
         .where((c) => !c)
-        .listen((expanded) {
-      _scrollController.scrollToIndex(widget.store.messages.length - 1);
+        .listen((expanded) async {
+      _disableScroll = false;
+      await _scrollController.scrollToIndex(widget.store.messages.length - 1);
+      _disableScroll = true;
     });
 
     widget.store.loadMoreHistory();
@@ -197,7 +204,13 @@ class _MessageListState extends State<_MessageList>
     _listKey.currentState?.insertItem(index);
     if (widget.store.messages.length == index + 1) {
       await WidgetsBinding.instance.endOfFrame;
-      _scrollController.scrollToIndex(widget.store.messages.length - 1);
+      _disableScroll = false;
+      await _scrollController.scrollToIndex(widget.store.messages.length - 1);
+      BehaviorSubject<bool> collapsed =
+          context.peekInherited<BehaviorSubject<bool>, EmojiCollapsed>();
+      if (collapsed.value == false) {
+        _disableScroll = true;
+      }
     }
   }
 
