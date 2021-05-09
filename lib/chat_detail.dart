@@ -5,6 +5,7 @@ import 'package:bubble/bubble.dart';
 import 'package:fixnum/fixnum.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:ping_fe/account.dart';
 import 'package:ping_fe/api.dart';
 import 'package:ping_fe/chat_list.dart';
@@ -15,6 +16,8 @@ import 'package:ping_fe/persistent.dart';
 import 'package:ping_fe/protos/chat.pb.dart';
 import 'package:rsocket/rsocket.dart';
 import 'package:scroll_to_index/scroll_to_index.dart';
+
+import 'animated_list.dart' as al;
 
 import 'emoji/base_emoji.dart';
 
@@ -62,15 +65,16 @@ class MessageWidget extends StatelessWidget {
           final text =
               entry.remoteMessage?.content ?? entry.localMessage?.content;
           if (text == null) return const SizedBox();
-          Widget content = Text(text,
-              style: TextStyle(
-                fontSize: 28,
-                fontFamilyFallback: (!kIsWeb && Platform.isAndroid)
-                    ? <String>[
-                        'NotoColorEmoji',
-                      ]
-                    : null,
-              ));
+          Widget content =
+              Text(text + (entry?.remoteMessage?.id?.toString() ?? 'local'),
+                  style: TextStyle(
+                    fontSize: 28,
+                    fontFamilyFallback: (!kIsWeb && Platform.isAndroid)
+                        ? <String>[
+                            'NotoColorEmoji',
+                          ]
+                        : null,
+                  ));
           content = Bubble(
             color: currLocal ? Colors.green.withAlpha(220) : Colors.grey[600],
             margin: BubbleEdges.only(top: 10),
@@ -125,26 +129,28 @@ class _MessageList extends StatefulWidget {
 
 class _MessageListState extends State<_MessageList>
     with ListChanged<MessageEntry> {
-  final GlobalKey<AnimatedListState> _listKey = GlobalKey();
-  final AutoScrollController _scrollController =
-      AutoScrollController(suggestedRowHeight: 54);
+  final GlobalKey<al.AnimatedListState> _listKey = GlobalKey();
+  final AutoScrollController _scrollController = AutoScrollController();
   VoidCallback _listDisposable;
   VoidCallback _scrollControllerDisposable;
   StreamSubscription _collapseSubscription;
   bool _disableScroll = false;
+  bool _autoScrolling = false;
   @override
   void initState() {
     super.initState();
     BehaviorSubject<bool> collapsed =
         context.peekInherited<BehaviorSubject<bool>, EmojiCollapsed>();
-    _listDisposable =
-        widget.store.addListener(this).andThen(() => _listDisposable = null);
     _scrollControllerDisposable = _scrollController.addListenerDisposable(() {
-      if (_scrollController.offset <= 0) {
+      if (_scrollController.position.userScrollDirection ==
+          ScrollDirection.idle) return;
+      // if (_autoScrolling != false) return;
+      if (_scrollController.offset <=
+          _scrollController.position.minScrollExtent) {
         widget.store.loadMoreHistory();
       }
-      if (collapsed.value == false && _disableScroll == true) {
-        _disableScroll = false;
+      if (collapsed.value == false) {
+        print('auto collapse');
         collapsed.value = true;
       }
     });
@@ -153,20 +159,33 @@ class _MessageListState extends State<_MessageList>
         .distinct()
         .where((c) => !c)
         .listen((expanded) async {
-      _disableScroll = false;
-      await _scrollController.scrollToIndex(widget.store.messages.length - 1);
-      _disableScroll = true;
+      if (_autoScrolling != false) return;
+      await scrollToEnd();
     });
-
-    widget.store.loadMoreHistory();
+    () async {
+      if (widget.store.messages.isEmpty) {
+        await widget.store.loadMoreHistory();
+        setState(() {});
+        await jumpToEnd();
+      }
+    }();
+    _listDisposable =
+        widget.store.addListener(this).andThen(() => _listDisposable = null);
   }
 
   @override
   void didUpdateWidget(covariant _MessageList oldWidget) {
     super.didUpdateWidget(oldWidget);
     _listDisposable?.call();
-    _listDisposable =
-        widget.store.addListener(this).andThen(() => _listDisposable = null);
+    () async {
+      if (widget.store.messages.isEmpty) {
+        await widget.store.loadMoreHistory();
+        setState(() {});
+        await jumpToEnd();
+      }
+      _listDisposable =
+          widget.store.addListener(this).andThen(() => _listDisposable = null);
+    }();
   }
 
   @override
@@ -180,10 +199,19 @@ class _MessageListState extends State<_MessageList>
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedList(
+    print('building length ${widget.store.messages.length}');
+    return al.AnimatedList(
         controller: _scrollController,
+        physics: AlwaysScrollableScrollPhysics(),
+        // reverse: true,
         key: _listKey,
+        prependItemCount: widget.store.prependMessages.length,
         initialItemCount: widget.store.messages.length,
+        prependItemBuilder: (context, index) {
+          return MessageWidget(
+              previous: widget.store.prependMessages.getOrNull(index - 1),
+              message: widget.store.prependMessages[index]);
+        },
         itemBuilder: (context, index, animation) {
           return AutoScrollTag(
             key: ValueKey(index),
@@ -201,17 +229,48 @@ class _MessageListState extends State<_MessageList>
 
   @override
   inserted(int index) async {
+    print('inserted $index');
     _listKey.currentState?.insertItem(index);
     if (widget.store.messages.length == index + 1) {
       await WidgetsBinding.instance.endOfFrame;
-      _disableScroll = false;
-      await _scrollController.scrollToIndex(widget.store.messages.length - 1);
-      BehaviorSubject<bool> collapsed =
-          context.peekInherited<BehaviorSubject<bool>, EmojiCollapsed>();
-      if (collapsed.value == false) {
-        _disableScroll = true;
-      }
+      await scrollToEnd();
     }
+  }
+
+  Future<void> _s;
+  Future<void> scrollToEnd() async {
+    _s = () async {
+      await _s;
+      final end = _listKey.currentState?.endOffset;
+      if (end != null) {
+        _autoScrolling = true;
+        print('scrollTOEnd $end');
+        await _scrollController.animateTo(end,
+            duration: const Duration(milliseconds: 100), curve: Curves.ease);
+        await Future.delayed(const Duration(milliseconds: 2000));
+        print('scrolled to end');
+        _autoScrolling = false;
+      }
+    }();
+    await _s;
+  }
+
+  Future<void> jumpToEnd() async {
+    _s = () async {
+      await _s;
+      final end = _listKey.currentState?.endOffset;
+      if (end != null) {
+        _scrollController.jumpTo(end);
+      }
+    }();
+    await _s;
+  }
+
+  @override
+  prepended(int index) {
+    // print('prepended index $index');
+    // _listKey.currentState?.prependItem(index);
+    setState(() {});
   }
 
   @override
@@ -231,13 +290,13 @@ class ChatDetail extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<ChatInfo>(
-        initialData: ChatListStore.current?.chatInfo
-            ?.firstWhere((c) => c.id == chatId, orElse: () => null),
+        // initialData: ChatListStore.current?.chatInfo
+        //     ?.firstWhere((c) => c.id == chatId, orElse: () => null),
         stream: context.rsockets.chatList
             .map((cs) =>
                 cs.firstWhere((c) => c.id == chatId, orElse: () => null))
             .where((c) => c != null)
-            .distinct(),
+            .distinct((l, r) => l == r),
         builder: (context, snapshot) {
           if (snapshot.hasError) {
             return Center(
@@ -266,7 +325,7 @@ class ChatDetailWidget extends StatefulWidget {
 
 class ChatDetailState extends State<ChatDetailWidget> {
   BehaviorSubject<Emoji> throwingEmoji = BehaviorSubject();
-  BehaviorSubject<bool> keyboardCollapsed = BehaviorSubject();
+  BehaviorSubject<bool> keyboardCollapsed = BehaviorSubject()..value = false;
   bool showKeyboard = true;
 
   @override
@@ -397,6 +456,7 @@ extension on RSocketConn {
 
 extension MessageStoreExt on BuildContext {
   static Stream<MessageStore> _stream;
+  static MessageStore starting;
   Stream<MessageStore> get messageStore async* {
     if (MessageStore.instance != null) yield MessageStore.instance;
     yield* _stream ??= accountStore.stream
@@ -405,10 +465,13 @@ extension MessageStoreExt on BuildContext {
             handleData: (conn, sink) async {
       if (MessageStore.instance?.account == conn?.account) return;
       await MessageStore.instance?.cancel();
-      final store = MessageStore.instance = conn?.messageStore;
+      MessageStore.instance = null;
+      final store = starting = conn?.messageStore;
       await store?.start(accountStore.stream.persistentStore
           .firstWhere((store) => store.account == conn.account));
-      if (identical(store, MessageStore.instance)) {
+      if (identical(store, starting)) {
+        MessageStore.instance = store;
+        starting = null;
         sink.add(store);
       }
     })).asBroadcastStream();
@@ -488,7 +551,7 @@ class LocalMessage {
 class ChatMessageStore {
   final String chatId;
   final AccountPersistentStore store;
-  // List<MessageSection> sections = [];
+  List<MessageEntry> prependMessages = [];
   List<MessageEntry> messages = [];
   ListChanged<MessageEntry> _listener;
   Map<Int64, MessageEntry> localIdToMessage = {};
@@ -538,7 +601,9 @@ class ChatMessageStore {
     _listener?.inserted(messages.length - 1);
   }
 
+  bool get loadingMoreHistory => _loadMoreFuture != null;
   loadMoreHistory() async {
+    print('loadMore $_sawStart ${prependMessages.length}');
     if (_sawStart) return;
     if (_loadMoreFuture != null) {
       return await _loadMoreFuture;
@@ -547,19 +612,23 @@ class ChatMessageStore {
     _loadMoreFuture = completer.future;
     try {
       final firstMessageId = this
-          .messages
+          .prependMessages
+          .reversed
           .map((e) => e.remoteMessage?.id)
           .firstWhere((e) => e != null, orElse: () => Int64(-1));
-      final messages = await store?.loadMessagesBefore(
+      print('first id $firstMessageId');
+      var messages = await store?.loadMessagesBefore(
             chatId: chatId,
             messageId: firstMessageId,
-            limit: 100,
+            limit: 12,
           ) ??
           [];
       if (messages.isEmpty) _sawStart = true;
-      this
-          .messages
-          .insertAll(0, messages.map((e) => MessageEntry()..remoteMessage = e));
+      print('loaded history ${messages.length} ${this.prependMessages.length}');
+      final start = prependMessages.length;
+
+      this.prependMessages.addAll(
+          messages.reversed.map((e) => MessageEntry()..remoteMessage = e));
       // var newSectionCount = 0;
       // for (final message in messages.reversed) {
       //   if (sections.firstOrNull?.prepend(message) == true) continue;
@@ -569,9 +638,10 @@ class ChatMessageStore {
       //   newSectionCount++;
       // }
       if (_listener != null)
-        for (final index in Iterable<int>.generate(messages.length)) {
-          _listener.inserted(index);
-        }
+        // for (final index in Iterable<int>.generate(messages.length)) {
+        //   print('prepended index $index + $start = ${index + start}');
+        _listener.prepended(0);
+      // }
     } catch (e) {
       completer.completeError(e);
       throw e;

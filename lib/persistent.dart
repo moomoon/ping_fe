@@ -111,6 +111,7 @@ extension AccountPersistentStoreOps on AccountPersistentStore {
       Int64 messageId,
       int limit: 100,
       Decoder<Message> decoder: const MessageCodec()}) async {
+    print('loadMessages before $chatId, $messageId, $limit');
     String where = '';
     List whereArgs = [];
     if (chatId?.isNotEmpty == true) {
