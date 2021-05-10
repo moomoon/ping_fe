@@ -41,20 +41,12 @@ bool _isMessageLocal(MessageEntry entry) {
 
 class MessageWidget extends StatelessWidget {
   final MessageEntry message;
-  final MessageEntry previous;
 
-  const MessageWidget(
-      {Key key, @required this.message, @required this.previous})
-      : super(key: key);
+  const MessageWidget({Key key, @required this.message}) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
     final currLocal = _isMessageLocal(message);
-    bool prevLocal;
-    if (previous != null) {
-      prevLocal = _isMessageLocal(previous);
-    }
-    final hasNip = currLocal != prevLocal;
     return ExternalStatefulBuilder<MessageEntry>(
         state: message,
         builder: (context, ChangeNotifier state) {
@@ -62,31 +54,23 @@ class MessageWidget extends StatelessWidget {
           final text =
               entry.remoteMessage?.content ?? entry.localMessage?.content;
           if (text == null) return const SizedBox();
-          Widget content =
-              Text(text + (entry?.remoteMessage?.id?.toString() ?? 'local'),
-                  style: TextStyle(
-                    fontSize: 28,
-                    fontFamilyFallback: (!kIsWeb && Platform.isAndroid)
-                        ? <String>[
-                            'NotoColorEmoji',
-                          ]
-                        : null,
-                  ));
+          Widget content = Text(text,
+              style: TextStyle(
+                fontSize: 28,
+                fontFamilyFallback: (!kIsWeb && Platform.isAndroid)
+                    ? <String>[
+                        'NotoColorEmoji',
+                      ]
+                    : null,
+              ));
           content = Bubble(
             color: currLocal ? Colors.green.withAlpha(220) : Colors.grey[600],
             margin: BubbleEdges.only(top: 10),
-            nip: hasNip
-                ? (currLocal ? BubbleNip.rightTop : BubbleNip.leftTop)
-                : null,
+            nip: currLocal ? BubbleNip.rightBottom : BubbleNip.leftBottom,
             child: content,
             stick: false,
           );
           content = Container(
-              margin: hasNip
-                  ? null
-                  : (currLocal
-                      ? const EdgeInsets.only(right: 8)
-                      : const EdgeInsets.only(left: 8)),
               constraints: BoxConstraints.loose(
                 Size(
                   200,
@@ -202,6 +186,7 @@ class _MessageListState extends State<_MessageList>
         physics: AlwaysScrollableScrollPhysics(),
         key: _listKey,
         initialItemCount: widget.store.messages.length,
+        padding: const EdgeInsets.all(8),
         itemBuilder: (context, index, animation) {
           return AutoScrollTag(
             key: ValueKey(index),
@@ -209,9 +194,7 @@ class _MessageListState extends State<_MessageList>
             index: index,
             child: FadeTransition(
                 opacity: animation,
-                child: MessageWidget(
-                    previous: widget.store.messages.getOrNull(index - 1),
-                    message: widget.store.messages[index])),
+                child: MessageWidget(message: widget.store.messages[index])),
             highlightColor: Colors.black.withOpacity(0.1),
           );
         });
@@ -565,14 +548,7 @@ class ChatMessageStore {
   }
 
   append(MessageEntry message) {
-    // messages.add(message);
     messages.insert(0, message);
-    // if (sections.lastOrNull?.append(message) == true) {
-    //   return;
-    // }
-    // final section = MessageSection();
-    // section.append(message);
-    // sections.add(section);
     _listener?.inserted(0);
   }
 
