@@ -838,7 +838,6 @@ extension StreamOps<T> on Stream<T> {
 }
 
 abstract class ListChanged<E> {
-  prepended(int index);
   inserted(int index);
   removed(int index, E previous);
 
@@ -869,9 +868,6 @@ class _EmptyListener<E> implements ListChanged<E> {
   }
 
   @override
-  prepended(int index) {}
-
-  @override
   inserted(int index) {}
 
   @override
@@ -884,12 +880,6 @@ class DelegatedListChanged<E> extends ListChanged<E> {
   final ListChanged delegate;
 
   DelegatedListChanged(this.delegate, [this.prev]);
-
-  @override
-  prepended(int index) {
-    prev?.prepended(index);
-    delegate.prepended(index);
-  }
 
   @override
   inserted(int index) {
