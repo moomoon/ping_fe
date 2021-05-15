@@ -505,23 +505,16 @@ class LocalMessage {
   }
 }
 
-class ChatMessageStore {
+class ChatMessageStore with ListChangeNotifier<MessageEntry>{
   final String chatId;
   final AccountPersistentStore store;
   List<MessageEntry> prependMessages = [];
   List<MessageEntry> messages = [];
-  ListChanged<MessageEntry> _listener;
   Map<Int64, MessageEntry> localIdToMessage = {};
   bool _sawStart = false;
   Future<void> _loadMoreFuture;
 
-  ChatMessageStore({@required this.chatId, @required this.store})
-      : _listener = ListChanged.empty<MessageEntry>();
-
-  VoidCallback addListener(ListChanged l) {
-    _listener += l;
-    return () => _listener -= l;
-  }
+  ChatMessageStore({@required this.chatId, @required this.store});
 
   appendLocal(LocalMessage message) {
     final entry = MessageEntry()..localMessage = message;
@@ -549,7 +542,7 @@ class ChatMessageStore {
 
   append(MessageEntry message) {
     messages.insert(0, message);
-    _listener?.inserted(0);
+    listener.inserted(0);
   }
 
   bool get loadingMoreHistory => _loadMoreFuture != null;
@@ -576,9 +569,8 @@ class ChatMessageStore {
 
       this.messages.addAll(
           messages.reversed.map((e) => MessageEntry()..remoteMessage = e));
-      if (_listener != null)
         for (final index in Iterable<int>.generate(messages.length)) {
-          _listener.inserted(index + start);
+          listener.inserted(index + start);
         }
     } catch (e) {
       completer.completeError(e);

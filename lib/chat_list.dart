@@ -71,6 +71,16 @@ class ChatCell extends StatelessWidget {
   }
 }
 
+class ChatList with ListChangeNotifier<ChatCellData> {
+  List<ChatInfo> _unapprovedByMe = [];
+  List<ChatInfo> _initiatedByMeUnapproved = [];
+  List<ChatInfo> _valid = [];
+}
+
+class ChatCellData {
+
+}
+
 class ChatListStore {
   final Account account;
   final RSocket rsocket;
@@ -104,7 +114,7 @@ extension on RSocketConn {
       ChatListStore(account: account, rsocket: rsocket);
 }
 
-extension ChatList on Stream<RSocketConn> {
+extension ChatStreams on Stream<RSocketConn> {
   static Stream<List<ChatInfo>> _stream;
   Stream<List<ChatInfo>> get chatList async* {
     if (ChatListStore.current?.chatInfo != null) {

@@ -837,6 +837,16 @@ extension StreamOps<T> on Stream<T> {
   }
 }
 
+mixin ListChangeNotifier<E> {
+  ListChanged<E> _listener = ListChanged.empty();
+  ListChanged<E> get listener => _listener;
+
+  VoidCallback addListener(ListChanged l) {
+    _listener += l;
+    return () => _listener -= l;
+  }
+}
+
 abstract class ListChanged<E> {
   inserted(int index);
   removed(int index, E previous);
