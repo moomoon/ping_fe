@@ -43,6 +43,7 @@ dependencies:
   bubble: ^1.2.1
   scrollable_positioned_list: ^0.1.10
   scroll_to_index: ^2.0.0
+  implicitly_animated_reorderable_list: ^0.4.0
 
 dev_dependencies:
   flutter_test:

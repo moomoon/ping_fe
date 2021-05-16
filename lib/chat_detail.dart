@@ -188,14 +188,9 @@ class _MessageListState extends State<_MessageList>
         initialItemCount: widget.store.messages.length,
         padding: const EdgeInsets.all(8),
         itemBuilder: (context, index, animation) {
-          return AutoScrollTag(
-            key: ValueKey(index),
-            controller: _scrollController,
-            index: index,
-            child: FadeTransition(
+          return FadeTransition(
                 opacity: animation,
-                child: MessageWidget(message: widget.store.messages[index])),
-            highlightColor: Colors.black.withOpacity(0.1),
+                child: MessageWidget(message: widget.store.messages[index])
           );
         });
   }

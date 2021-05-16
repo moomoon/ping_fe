@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
+import 'package:implicitly_animated_reorderable_list/implicitly_animated_reorderable_list.dart';
+import 'package:implicitly_animated_reorderable_list/transitions.dart';
 import 'package:ping_fe/account.dart';
 import 'package:ping_fe/api.dart';
 import 'package:ping_fe/avatar.dart';
@@ -15,19 +17,27 @@ class ChatListWidget extends StatelessWidget {
       MaterialPage(key: ValueKey('chat_list'), child: ChatListWidget());
 
   const ChatListWidget({Key key}) : super(key: key);
+
   @override
   Widget build(BuildContext context) {
+    GlobalKey<AnimatedListState> key = GlobalKey();
     Widget content = StreamBuilder<List<ChatInfo>>(
         stream: context.rsockets.chatList,
         builder: (context, snapshot) {
-          return ListView.builder(
-              itemCount: snapshot?.data?.length ?? 0,
-              itemBuilder: (context, index) {
-                return InkWell(
-                    onTap: () {
-                      context.mainRouter.pushChat(snapshot.data[index]);
-                    },
-                    child: ChatCell(chat: snapshot.data[index]));
+          List<ChatInfo> data = snapshot.data ?? [];
+          return ImplicitlyAnimatedList<ChatInfo>(
+              key: key,
+              items: data,
+              areItemsTheSame: (l, r) => l.id == r.id,
+              itemBuilder: (context, animation, item, index) {
+                return SizeFadeTransition(
+                    animation: animation,
+                    child: InkWell(
+                        onTap: () {
+                          context.mainRouter.pushChat(item);
+                        },
+                        child: ChatCell(chat: item)),
+                );
               });
         });
     content = Container(
@@ -58,6 +68,7 @@ class ChatCell extends StatelessWidget {
   final ChatInfo chat;
 
   const ChatCell({Key key, @required this.chat}) : super(key: key);
+
   @override
   Widget build(BuildContext context) {
     final currUser = context.accountStore.value?.username;
@@ -75,11 +86,12 @@ class ChatList with ListChangeNotifier<ChatCellData> {
   List<ChatInfo> _unapprovedByMe = [];
   List<ChatInfo> _initiatedByMeUnapproved = [];
   List<ChatInfo> _valid = [];
+  Map<String, ChatInfo> _refs = {};
+
+  onChatInfo(ChatInfo chat) {}
 }
 
-class ChatCellData {
-
-}
+class ChatCellData {}
 
 class ChatListStore {
   final Account account;
@@ -87,6 +99,7 @@ class ChatListStore {
   Stream<List<ChatInfo>> _stream;
   StreamSubscription<List<ChatInfo>> _remoteSubscription;
   List<ChatInfo> _chatInfo = [];
+
   List<ChatInfo> get chatInfo => _chatInfo;
 
   ChatListStore({@required this.account, @required this.rsocket});
@@ -116,6 +129,7 @@ extension on RSocketConn {
 
 extension ChatStreams on Stream<RSocketConn> {
   static Stream<List<ChatInfo>> _stream;
+
   Stream<List<ChatInfo>> get chatList async* {
     if (ChatListStore.current?.chatInfo != null) {
       yield ChatListStore.current.chatInfo;
